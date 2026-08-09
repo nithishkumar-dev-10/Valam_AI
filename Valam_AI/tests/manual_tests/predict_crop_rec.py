@@ -9,7 +9,7 @@ import sys
 import joblib
 from pathlib import Path
 
-MODEL_DIR = Path(__file__).resolve().parent.parent / "app" / "ml_models"
+MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "app" / "ml_models"
 
 model = joblib.load(MODEL_DIR / "crop_recommender.pkl")
 label_encoder = joblib.load(MODEL_DIR / "label_encoder.pkl")
