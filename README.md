@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:0b3d0b,50:1a5c1a,100:2e8b2e&height=200&section=header&text=VALAM%20AI&fontSize=60&fontColor=ffffff&fontAlignY=38&desc=AI-Powered%20Farmer%20Assistant%20%E2%80%94%20%20%20&descAlignY=58&descSize=18&descColor=b6f2b6&animation=fadeIn" width="100%"/>
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:0b3d0b,50:1a5c1a,100:2e8b2e&height=200&section=header&text=VALAM%20AI&fontSize=60&fontColor=ffffff&fontAlignY=38&desc=AI-Powered%20Farmer%20Assistant%20%20%20%20&descAlignY=58&descSize=18&descColor=b6f2b6&animation=fadeIn" width="100%"/>
 
 <br/>
 
