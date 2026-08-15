@@ -47,13 +47,19 @@ def get_dataloaders():
 
 
 def build_model(num_classes: int) -> nn.Module:
-    model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.IMAGENET1K_V1)
+    model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
 
-    for param in model.features.parameters():
+    # Freeze everything first
+    for param in model.parameters():
         param.requires_grad = False
 
-    in_features = model.classifier[1].in_features
-    model.classifier[1] = nn.Linear(in_features, num_classes)
+    
+    for param in model.layer4.parameters():
+        param.requires_grad = True
+
+    # Replace and train the final classifier layer as before
+    in_features = model.fc.in_features
+    model.fc = nn.Linear(in_features, num_classes)
 
     return model.to(DEVICE)
 
@@ -93,7 +99,13 @@ def main():
 
     model = build_model(num_classes=len(classes))
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.classifier.parameters(), lr=LEARNING_RATE)
+
+    # Lower LR for the unfrozen pretrained layer4 (fine-tuning, don't wreck existing weights)
+    # Normal LR for the freshly-initialized fc layer (needs to learn from scratch)
+    optimizer = torch.optim.Adam([
+        {"params": model.layer4.parameters(), "lr": LEARNING_RATE / 10},
+        {"params": model.fc.parameters(), "lr": LEARNING_RATE},
+    ])
 
     best_val_acc = 0.0
     MODEL_OUT.parent.mkdir(parents=True, exist_ok=True)
