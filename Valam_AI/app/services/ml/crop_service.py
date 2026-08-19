@@ -1,12 +1,10 @@
-# app/services/ml/crop_predictor.py
-
 import joblib
 import numpy as np
 
 from app.config import CROP_MODEL_PATH, CROP_ENCODER_PATH
 
 
-class CropPredictor:
+class CropService:
     def __init__(self):
         self.model = joblib.load(CROP_MODEL_PATH)
         self.label_encoder = joblib.load(CROP_ENCODER_PATH)
@@ -21,4 +19,4 @@ class CropPredictor:
         return crop_name, confidence
 
 
-crop_predictor = CropPredictor()
+crop_service = CropService()
