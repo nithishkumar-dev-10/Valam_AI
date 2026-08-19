@@ -1,22 +1,41 @@
 Classes (9): ['Chinee_Apple', 'Lantana', 'Negative', 'Parkinsonia', 'Parthenium', 'Prickly_Acacia', 'Rubber_Vine', 'Siam_Weed', 'Snake_Weed']
 Device: cpu
-Epoch 1/10 | train_loss=1.5457 train_acc=0.5220 | val_loss=1.3302 val_acc=0.5433 | 552.8s
-  -> saved new best model (val_acc=0.5433)
-Epoch 2/10 | train_loss=1.2884 train_acc=0.5562 | val_loss=1.1567 val_acc=0.6181 | 522.5s
-  -> saved new best model (val_acc=0.6181)
-Epoch 3/10 | train_loss=1.1666 train_acc=0.5977 | val_loss=1.0726 val_acc=0.6450 | 513.1s
-  -> saved new best model (val_acc=0.6450)
-Epoch 4/10 | train_loss=1.1130 train_acc=0.6229 | val_loss=1.0097 val_acc=0.6618 | 513.6s
-  -> saved new best model (val_acc=0.6618)
-Epoch 5/10 | train_loss=1.0695 train_acc=0.6355 | val_loss=0.9785 val_acc=0.6907 | 525.0s
-  -> saved new best model (val_acc=0.6907)
-Epoch 6/10 | train_loss=1.0416 train_acc=0.6450 | val_loss=0.9486 val_acc=0.6884 | 538.1s
-Epoch 7/10 | train_loss=1.0195 train_acc=0.6516 | val_loss=0.9133 val_acc=0.6935 | 612.3s
-  -> saved new best model (val_acc=0.6935)
-Epoch 8/10 | train_loss=0.9988 train_acc=0.6546 | val_loss=0.8897 val_acc=0.7067 | 553.4s
-  -> saved new best model (val_acc=0.7067)
-Epoch 9/10 | train_loss=0.9814 train_acc=0.6576 | val_loss=0.8979 val_acc=0.7038 | 578.7s
-Epoch 10/10 | train_loss=0.9654 train_acc=0.6701 | val_loss=0.8759 val_acc=0.7015 | 516.8s
+Epoch 1/18 | train_loss=1.2966 train_acc=0.5674 | val_loss=0.9470 val_acc=0.6972 | 646.3s
+  -> saved new best model (val_acc=0.6972)
+Epoch 2/18 | train_loss=0.9427 train_acc=0.6825 | val_loss=0.7398 val_acc=0.7472 | 706.7s
+  -> saved new best model (val_acc=0.7472)
+Epoch 3/18 | train_loss=0.8225 train_acc=0.7140 | val_loss=0.6622 val_acc=0.7689 | 655.2s
+  -> saved new best model (val_acc=0.7689)
+Epoch 4/18 | train_loss=0.7428 train_acc=0.7474 | val_loss=0.6180 val_acc=0.7863 | 647.8s
+  -> saved new best model (val_acc=0.7863)
+Epoch 5/18 | train_loss=0.6919 train_acc=0.7610 | val_loss=0.5536 val_acc=0.8081 | 698.8s
+  -> saved new best model (val_acc=0.8081)
+Epoch 6/18 | train_loss=0.6428 train_acc=0.7753 | val_loss=0.5121 val_acc=0.8215 | 826.6s
+  -> saved new best model (val_acc=0.8215)
+Epoch 7/18 | train_loss=0.6130 train_acc=0.7883 | val_loss=0.5086 val_acc=0.8198 | 668.2s
+  -> no improvement (1/5)
+Epoch 8/18 | train_loss=0.5841 train_acc=0.7965 | val_loss=0.4949 val_acc=0.8292 | 669.3s
+  -> saved new best model (val_acc=0.8292)
+Epoch 9/18 | train_loss=0.5800 train_acc=0.8054 | val_loss=0.4863 val_acc=0.8309 | 739.5s
+  -> saved new best model (val_acc=0.8309)
+Epoch 10/18 | train_loss=0.5510 train_acc=0.8123 | val_loss=0.4467 val_acc=0.8406 | 677.6s
+  -> saved new best model (val_acc=0.8406)
+Epoch 11/18 | train_loss=0.5410 train_acc=0.8131 | val_loss=0.4387 val_acc=0.8540 | 552.9s
+  -> saved new best model (val_acc=0.8540)
+Epoch 12/18 | train_loss=0.5307 train_acc=0.8154 | val_loss=0.4427 val_acc=0.8429 | 530.6s
+  -> no improvement (1/5)
+Epoch 13/18 | train_loss=0.5239 train_acc=0.8188 | val_loss=0.4306 val_acc=0.8486 | 625.9s
+  -> no improvement (2/5)
+Epoch 14/18 | train_loss=0.5064 train_acc=0.8245 | val_loss=0.4178 val_acc=0.8586 | 618.9s
+  -> saved new best model (val_acc=0.8586)
+Epoch 15/18 | train_loss=0.4963 train_acc=0.8294 | val_loss=0.4013 val_acc=0.8600 | 642.2s
+  -> saved new best model (val_acc=0.8600)
+Epoch 16/18 | train_loss=0.4701 train_acc=0.8367 | val_loss=0.4047 val_acc=0.8649 | 642.2s
+  -> saved new best model (val_acc=0.8649)
+Epoch 17/18 | train_loss=0.4594 train_acc=0.8409 | val_loss=0.4032 val_acc=0.8606 | 643.5s
+  -> no improvement (1/5)
+Epoch 18/18 | train_loss=0.4513 train_acc=0.8468 | val_loss=0.4423 val_acc=0.8438 | 643.8s
+  -> no improvement (2/5)
 
-Final test accuracy: 0.6949 (loss=0.9054)
+Final test accuracy: 0.8560 (loss=0.4070)
 Classes saved to /Users/pranusaravanan/Valam_AI/Valam_AI/app/ml_models/deepweeds_classes.json
