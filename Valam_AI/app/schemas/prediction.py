@@ -1,23 +1,26 @@
-from pydantic import BaseModel, Field
-from typing import List
+from pydantic import BaseModel
 
 
-class CropPredictionRequest(BaseModel):
-    N: float = Field(..., description="Nitrogen content in soil", example=90)
-    P: float = Field(..., description="Phosphorus content in soil", example=42)
-    K: float = Field(..., description="Potassium content in soil", example=43)
-    temperature: float = Field(..., description="Temperature in Celsius", example=20.9)
-    humidity: float = Field(..., description="Relative humidity in %", example=82.0)
-    ph: float = Field(..., description="Soil pH value", example=6.5)
-    rainfall: float = Field(..., description="Rainfall in mm", example=200.0)
+class CropInput(BaseModel):
+    N: float
+    P: float
+    K: float
+    temperature: float
+    humidity: float
+    ph: float
+    rainfall: float
 
 
-class CropCandidate(BaseModel):
-    crop: str
+class CropOutput(BaseModel):
+    predicted_crop: str
     confidence: float
 
 
-class CropPredictionResponse(BaseModel):
-    recommended_crop: str
+class DiseaseOutput(BaseModel):
+    predicted_class: str
     confidence: float
-    top_3: List[CropCandidate]
+
+
+class WeedPestOutput(BaseModel):
+    predicted_class: str
+    confidence: float

@@ -12,7 +12,7 @@ MODEL_OUT = PROJECT_ROOT / "app" / "ml_models" / "deepweeds_model.pt"
 CLASSES_OUT = PROJECT_ROOT / "app" / "ml_models" / "deepweeds_classes.json"
 
 BATCH_SIZE = 32
-NUM_EPOCHS = 10
+NUM_EPOCHS = 18
 LEARNING_RATE = 1e-4
 IMG_SIZE = 224
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -53,7 +53,8 @@ def build_model(num_classes: int) -> nn.Module:
     for param in model.parameters():
         param.requires_grad = False
 
-    
+    # Unfreeze the last residual block (layer4) so it can adapt to weed images,
+    # instead of only training the final classifier on top of frozen ImageNet features
     for param in model.layer4.parameters():
         param.requires_grad = True
 
@@ -108,6 +109,8 @@ def main():
     ])
 
     best_val_acc = 0.0
+    epochs_without_improvement = 0
+    PATIENCE = 5  # stop if val_acc doesn't improve for this many epochs in a row
     MODEL_OUT.parent.mkdir(parents=True, exist_ok=True)
 
     for epoch in range(1, NUM_EPOCHS + 1):
@@ -123,8 +126,15 @@ def main():
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
+            epochs_without_improvement = 0
             torch.save(model.state_dict(), MODEL_OUT)
             print(f"  -> saved new best model (val_acc={val_acc:.4f})")
+        else:
+            epochs_without_improvement += 1
+            print(f"  -> no improvement ({epochs_without_improvement}/{PATIENCE})")
+            if epochs_without_improvement >= PATIENCE:
+                print(f"\nStopping early: no val_acc improvement for {PATIENCE} epochs.")
+                break
 
     model.load_state_dict(torch.load(MODEL_OUT))
     test_loss, test_acc = run_epoch(model, test_loader, criterion)
