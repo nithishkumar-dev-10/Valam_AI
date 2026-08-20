@@ -38,3 +38,12 @@ watchfiles==1.2.0
 websockets==17.0.1
 httpx==0.28.1
 httpx==0.28.1
+fastapi
+httpx
+joblib
+numpy
+pandas
+pydantic
+python-dotenv
+scikit-learn
+uvicorn
