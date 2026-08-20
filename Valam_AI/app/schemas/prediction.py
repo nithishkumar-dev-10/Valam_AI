@@ -14,6 +14,11 @@ class CropInput(BaseModel):
 class CropOutput(BaseModel):
     predicted_crop: str
     confidence: float
+    confidence_label: str
+    soil_source: str
+    weather_source: str
+    location: str
+    warning: str | None = None
 
 
 class DiseaseOutput(BaseModel):

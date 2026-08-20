@@ -1,14 +1,17 @@
-from typing import Literal
 from pydantic import BaseModel, Field
 
 
 class SimpleCropInput(BaseModel):
-    # Location drives auto-fetched weather data
-    latitude: float = Field(..., description="Farmer's field latitude")
-    longitude: float = Field(..., description="Farmer's field longitude")
+    latitude: float = Field(
+        ...,
+        ge=6.0,
+        le=37.5,
+        description="GPS latitude of the farm"
+    )
 
-    # Qualitative soil inputs — no lab numbers required
-    soil_nitrogen: Literal["low", "medium", "high"]
-    soil_phosphorus: Literal["low", "medium", "high"]
-    soil_potassium: Literal["low", "medium", "high"]
-    soil_ph: Literal["acidic", "neutral", "alkaline"]
+    longitude: float = Field(
+        ...,
+        ge=68.0,
+        le=97.5,
+        description="GPS longitude of the farm"
+    )

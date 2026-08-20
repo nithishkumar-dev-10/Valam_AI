@@ -1,24 +1,47 @@
-# app/services/ml/crop_predictor.py
-
+from pathlib import Path
 import joblib
-import numpy as np
+import pandas as pd
 
-from app.config import CROP_MODEL_PATH, CROP_ENCODER_PATH
+BASE_DIR = Path(__file__).resolve().parents[3]
+MODEL_PATH = BASE_DIR / "app" / "ml_models" / "crop_recommender.pkl"
+ENCODER_PATH = BASE_DIR / "app" / "ml_models" / "label_encoder.pkl"
+DATA_PATH = BASE_DIR / "data" / "crop_recommendation.csv"
+
+FEATURES = ["N", "P", "K", "temperature", "humidity", "ph", "rainfall"]
 
 
 class CropPredictor:
     def __init__(self):
-        self.model = joblib.load(CROP_MODEL_PATH)
-        self.label_encoder = joblib.load(CROP_ENCODER_PATH)
+        if not MODEL_PATH.exists():
+            raise FileNotFoundError(f"Crop model not found: {MODEL_PATH}")
 
-    def predict(self, N, P, K, temperature, humidity, ph, rainfall):
-        # order MUST match FEATURES in train_crop_model.py: N, P, K, temperature, humidity, ph, rainfall
-        features = np.array([[N, P, K, temperature, humidity, ph, rainfall]])
-        pred = self.model.predict(features)[0]
-        proba = self.model.predict_proba(features)[0]
-        confidence = float(max(proba))
-        crop_name = self.label_encoder.inverse_transform([pred])[0]
-        return crop_name, confidence
+        self.model = joblib.load(MODEL_PATH)
+
+        if ENCODER_PATH.exists():
+            self.encoder = joblib.load(ENCODER_PATH)
+            self.labels = None
+        else:
+            self.encoder = None
+            self.labels = sorted(
+                pd.read_csv(DATA_PATH)["label"].astype(str).unique()
+            )
+
+    def predict(self, **features) -> tuple[str, float]:
+        frame = pd.DataFrame(
+            [{name: float(features[name]) for name in FEATURES}],
+            columns=FEATURES,
+        )
+
+        encoded = int(self.model.predict(frame)[0])
+        probabilities = self.model.predict_proba(frame)[0]
+        confidence = float(probabilities.max())
+
+        if self.encoder is not None:
+            crop_name = str(self.encoder.inverse_transform([encoded])[0])
+        else:
+            crop_name = str(self.labels[encoded])
+
+        return crop_name, round(confidence, 4)
 
 
 crop_predictor = CropPredictor()

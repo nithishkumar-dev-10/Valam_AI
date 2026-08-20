@@ -1,40 +1,135 @@
 from fastapi import APIRouter, HTTPException
 
 from app.schemas.simple_crop_schema import SimpleCropInput
-from app.services.ml.crop_input_converter import convert_soil_inputs
+from app.schemas.prediction import CropOutput
+
+from app.services.external.geocoding import reverse_geocode
 from app.services.external.weather_fetch import fetch_weather_features
-from app.services.ml.crop_predictor import crop_predictor  # your existing model wrapper
-from app.config import WEATHER_API_KEY  # add this to config.py, sourced from .env
+from app.services.external.soil_lookup import get_regional_soil_values
+from app.services.ml.crop_predictor import crop_predictor
 
-router = APIRouter(prefix="/predict", tags=["crop"])
+from app.config import WEATHER_API_KEY, NOMINATIM_USER_AGENT
 
 
-@router.post("/crop-simple")
+router = APIRouter(
+    prefix="/predict",
+    tags=["crop"],
+)
+
+
+def _confidence_label(confidence: float) -> str:
+    if confidence >= 0.80:
+        return "high"
+
+    if confidence >= 0.60:
+        return "medium"
+
+    return "low"
+
+
+@router.post(
+    "/crop-simple",
+    response_model=CropOutput,
+)
 async def predict_crop_simple(payload: SimpleCropInput):
+
     try:
-        weather = await fetch_weather_features(
-            lat=payload.latitude,
-            lon=payload.longitude,
-            api_key=WEATHER_API_KEY,
+
+        # =========================================================
+        # 1. GPS coordinates → Location
+        # =========================================================
+
+        location = await reverse_geocode(
+            payload.latitude,
+            payload.longitude,
+            NOMINATIM_USER_AGENT,
         )
-    except Exception:
-        raise HTTPException(status_code=502, detail="Could not fetch weather data for this location.")
 
-    soil = convert_soil_inputs(
-        soil_nitrogen=payload.soil_nitrogen,
-        soil_phosphorus=payload.soil_phosphorus,
-        soil_potassium=payload.soil_potassium,
-        soil_ph=payload.soil_ph,
-    )
+        state = location.get("state")
 
-    crop_name, confidence = crop_predictor.predict(
-        N=soil["N"],
-        P=soil["P"],
-        K=soil["K"],
-        temperature=weather["temperature"],
-        humidity=weather["humidity"],
-        ph=soil["ph"],
-        rainfall=weather["rainfall"],
-    )
+        if not state:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not determine the state from the provided GPS coordinates.",
+            )
 
-    return {"predicted_crop": crop_name, "confidence": confidence}
+        # =========================================================
+        # 2. State → Regional Soil Values
+        # =========================================================
+
+        soil = get_regional_soil_values(state)
+
+        # =========================================================
+        # 3. GPS coordinates → Weather
+        # =========================================================
+        #
+        # IMPORTANT:
+        # fetch_weather_features() expects:
+        #
+        #     lat, lon, api_key
+        #
+        # NOT:
+        #
+        #     latitude=..., longitude=...
+        #
+        # =========================================================
+
+        weather = await fetch_weather_features(
+            payload.latitude,
+            payload.longitude,
+            WEATHER_API_KEY,
+        )
+
+        # =========================================================
+        # 4. Extract soil values
+        # =========================================================
+
+        N = soil["N"]
+        P = soil["P"]
+        K = soil["K"]
+        ph = soil["ph"]
+
+        # =========================================================
+        # 5. Extract weather values
+        # =========================================================
+
+        temperature = weather["temperature"]
+        humidity = weather["humidity"]
+        rainfall = weather["rainfall"]
+
+        # =========================================================
+        # 6. Crop prediction
+        # =========================================================
+
+        crop_name, confidence = crop_predictor.predict(
+            N=N,
+            P=P,
+            K=K,
+            temperature=temperature,
+            humidity=humidity,
+            ph=ph,
+            rainfall=rainfall,
+        )
+
+        # =========================================================
+        # 7. Return result
+        # =========================================================
+
+        return CropOutput(
+            predicted_crop=crop_name,
+            confidence=confidence,
+            confidence_label=_confidence_label(confidence),
+            soil_source=soil.get("source", "regional_estimate"),
+            weather_source="OpenWeather",
+            location=state,
+            warning=soil.get("warning"),
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Crop recommendation failed: {str(exc)}",
+        )
