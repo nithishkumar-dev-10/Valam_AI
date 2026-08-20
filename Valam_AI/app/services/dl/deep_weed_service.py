@@ -6,12 +6,12 @@ import torch.nn as nn
 from PIL import Image
 from torchvision import models, transforms
 
-from app.config import WEED_MODEL_PATH, WEED_CLASSES_PATH
+from app.config import DEEP_WEED_MODEL_PATH, DEEP_WEED_CLASSES_PATH
 
 
-class WeedPestService:
+class DeepWeedService:
     def __init__(self):
-        with open(WEED_CLASSES_PATH) as f:
+        with open(DEEP_WEED_CLASSES_PATH) as f:
             self.classes = json.load(f)
         num_classes = len(self.classes)
 
@@ -20,7 +20,7 @@ class WeedPestService:
         in_features = self.model.fc.in_features
         self.model.fc = nn.Linear(in_features, num_classes)
 
-        state_dict = torch.load(WEED_MODEL_PATH, map_location="cpu")
+        state_dict = torch.load(DEEP_WEED_MODEL_PATH, map_location="cpu")
         self.model.load_state_dict(state_dict)
         self.model.eval()
 
@@ -44,4 +44,4 @@ class WeedPestService:
         return self.classes[idx], confidence
 
 
-weed_pest_service = WeedPestService()
+deep_weed_service = DeepWeedService()
