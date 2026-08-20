@@ -1,6 +1,12 @@
 from fastapi import FastAPI
 
 from app.routers import crop, disease, weed_pest
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+from fastapi import FastAPI
+from app.routers import crop, disease, weed_pest
+...
 
 app = FastAPI(
     title="Valam AI",
