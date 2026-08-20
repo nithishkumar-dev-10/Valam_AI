@@ -12,5 +12,12 @@ DISEASE_MODEL_PATH = ML_MODELS_DIR / "disease_cnn.pt"
 DISEASE_CLASSES_PATH = ML_MODELS_DIR / "disease_classes.json"
 
 # Weed/Pest
-WEED_MODEL_PATH = ML_MODELS_DIR / "deepweeds_model.pt"
-WEED_CLASSES_PATH = ML_MODELS_DIR / "deepweeds_classes.json"
+DEEP_WEED_MODEL_PATH = ML_MODELS_DIR / "deepweeds_model.pt"
+DEEP_WEED_CLASSES_PATH = ML_MODELS_DIR / "deepweeds_classes.json"
+
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
