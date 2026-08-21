@@ -11,8 +11,12 @@ import shutil
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.models.farmer import Farmer
+from app.auth.jwt_handler import get_current_farmer
 from app.services.dl.voice_service import voice_service
 from app.services.dl.intent_router import route_query
 from app.schemas.voice import VoiceQueryResponse
@@ -30,6 +34,8 @@ async def voice_query(
     image: Optional[UploadFile] = File(None),
     latitude: Optional[float] = Form(None),
     longitude: Optional[float] = Form(None),
+    farmer: Farmer = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
 ):
     """
     latitude/longitude are needed for the crop intent.
