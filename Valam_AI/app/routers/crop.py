@@ -8,7 +8,7 @@ from app.services.external.weather_fetch import fetch_weather_features
 from app.services.external.soil_lookup import get_regional_soil_values
 from app.services.ml.crop_predictor import crop_predictor
 
-from app.config import WEATHER_API_KEY, NOMINATIM_USER_AGENT
+from app.config import NOMINATIM_USER_AGENT
 
 
 router = APIRouter(
@@ -46,6 +46,7 @@ async def predict_crop_simple(payload: SimpleCropInput):
         )
 
         state = location.get("state")
+        district = location.get("district")
 
         if not state:
             raise HTTPException(
@@ -54,30 +55,25 @@ async def predict_crop_simple(payload: SimpleCropInput):
             )
 
         # =========================================================
-        # 2. State → Regional Soil Values
+        # 2. State/District → Regional Soil Values
         # =========================================================
 
-        soil = get_regional_soil_values(state)
+        soil = get_regional_soil_values(state, district)
 
         # =========================================================
         # 3. GPS coordinates → Weather
         # =========================================================
         #
-        # IMPORTANT:
-        # fetch_weather_features() expects:
-        #
-        #     lat, lon, api_key
-        #
-        # NOT:
-        #
-        #     latitude=..., longitude=...
+        # fetch_weather_features() takes ONLY (latitude, longitude).
+        # It reads WEATHER_API_KEY from the environment itself
+        # (via app.config's load_dotenv() side effect), and it
+        # internally merges in NASA POWER rainfall too.
         #
         # =========================================================
 
         weather = await fetch_weather_features(
             payload.latitude,
             payload.longitude,
-            WEATHER_API_KEY,
         )
 
         # =========================================================
@@ -120,7 +116,7 @@ async def predict_crop_simple(payload: SimpleCropInput):
             confidence=confidence,
             confidence_label=_confidence_label(confidence),
             soil_source=soil.get("source", "regional_estimate"),
-            weather_source="OpenWeather",
+            weather_source="OpenWeather + NASA POWER",
             location=state,
             warning=soil.get("warning"),
         )
