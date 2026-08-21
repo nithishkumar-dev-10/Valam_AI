@@ -48,4 +48,10 @@ python-dotenv
 scikit-learn
 uvicorn
 openai-whisper
-gTTS
+gTTSpillow==12.3.0
+torch==2.13.0
+torchvision==0.28.0
+passlib==1.7.4
+python-jose==3.5.0
+python-multipart==0.0.32
+SQLAlchemy==2.0.52
