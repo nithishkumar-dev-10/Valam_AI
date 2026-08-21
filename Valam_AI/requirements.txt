@@ -47,3 +47,5 @@ pydantic
 python-dotenv
 scikit-learn
 uvicorn
+openai-whisper
+gTTS

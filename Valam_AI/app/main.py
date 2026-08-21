@@ -8,7 +8,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 from fastapi import FastAPI
 
-from app.routers import crop, disease, deep_weed 
+from app.routers import crop, disease, deep_weed, voice
 
 app = FastAPI(
     title="Valam AI",
@@ -19,6 +19,7 @@ app = FastAPI(
 app.include_router(crop.router)
 app.include_router(disease.router)
 app.include_router(deep_weed.router) 
+app.include_router(voice.router)
 
 
 @app.get("/")

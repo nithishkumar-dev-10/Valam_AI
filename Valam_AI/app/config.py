@@ -14,6 +14,12 @@ DISEASE_CLASSES_PATH = ML_MODELS_DIR / "disease_classes.json"
 DEEP_WEED_MODEL_PATH = ML_MODELS_DIR / "deepweeds_model.pt"
 DEEP_WEED_CLASSES_PATH = ML_MODELS_DIR / "deepweeds_classes.json"
 
+
+
+VOICE_AUDIO_OUTPUT_DIR = BASE_DIR / "app" / "static" / "voice_responses"
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
+DEFAULT_VOICE_LANGUAGE = os.getenv("DEFAULT_VOICE_LANGUAGE", "ta")
+
 load_dotenv()
 
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
