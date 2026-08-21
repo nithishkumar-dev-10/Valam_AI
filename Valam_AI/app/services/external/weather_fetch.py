@@ -1,6 +1,5 @@
-import os
 import httpx
-
+from app.config import WEATHER_API_KEY
 
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
 NASA_POWER_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
@@ -11,20 +10,22 @@ async def fetch_weather_features(
     longitude: float,
 ):
     """
-    Fetch weather features using latitude and longitude.
+    Fetch combined weather features using latitude and longitude.
+
+    Temperature / humidity / pressure / wind come from OpenWeather.
+    Rainfall comes from NASA POWER.
 
     API key is read from:
         WEATHER_API_KEY
     """
 
-    # Get API key from .env / environment
-    api_key = os.getenv("WEATHER_API_KEY")
-
-    if not api_key:
+    if not WEATHER_API_KEY:
         raise RuntimeError(
             "Weather API key is not configured. "
             "Set WEATHER_API_KEY in your environment."
         )
+
+    api_key = WEATHER_API_KEY
 
     params = {
         "lat": latitude,
@@ -72,13 +73,18 @@ async def fetch_weather_features(
             "OpenWeather API returned incomplete weather data."
         )
 
+    # Pull rainfall from NASA POWER and merge it into the same feature set
+    nasa_data = await fetch_nasa_rainfall(latitude, longitude)
+    rainfall = nasa_data["rainfall"]
+
     return {
         "temperature": temperature,
         "humidity": humidity,
         "pressure": pressure,
         "wind_speed": wind_speed,
         "weather_description": weather_description,
-        "source": "openweather",
+        "rainfall": rainfall,
+        "source": "openweather+nasa_power",
         "latitude": latitude,
         "longitude": longitude,
     }
@@ -139,7 +145,7 @@ async def fetch_nasa_rainfall(
     valid_values = [
         value
         for value in rainfall_data.values()
-        if value is not None
+        if value is not None and value > -900
     ]
 
     if not valid_values:

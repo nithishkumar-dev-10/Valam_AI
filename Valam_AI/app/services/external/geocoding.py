@@ -19,11 +19,22 @@ async def reverse_geocode(lat: float, lon: float, user_agent: str) -> dict:
     state = address.get("state") or address.get("state_district")
     country = address.get("country")
 
+    # District: Nominatim reports this under "state_district" for India,
+    # occasionally under "county" for some areas. Optional — a missing
+    # district should not break the request, soil lookup will fall
+    # back to state-level data.
+    district = (
+        address.get("state_district")
+        or address.get("county")
+        or None
+    )
+
     if not state:
         raise RuntimeError("Could not determine the state for this location.")
 
     return {
         "state": state,
+        "district": district,
         "country": country,
         "display_name": data.get("display_name", state),
     }
