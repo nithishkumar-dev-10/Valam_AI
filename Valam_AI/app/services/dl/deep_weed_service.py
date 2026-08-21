@@ -1,5 +1,6 @@
 import io
 import json
+import threading
 
 import torch
 import torch.nn as nn
@@ -11,29 +12,43 @@ from app.config import DEEP_WEED_MODEL_PATH, DEEP_WEED_CLASSES_PATH
 
 class DeepWeedService:
     def __init__(self):
-        with open(DEEP_WEED_CLASSES_PATH) as f:
-            self.classes = json.load(f)
-        num_classes = len(self.classes)
+        self.model = None
+        self.classes = None
+        self.transform = None
+        self._lock = threading.Lock()
 
-        # must match train_deepweeds_model.py build_model() architecture
-        self.model = models.resnet18(weights=None)
-        in_features = self.model.fc.in_features
-        self.model.fc = nn.Linear(in_features, num_classes)
+    def _ensure_loaded(self):
+        if self.model is not None:
+            return
+        with self._lock:
+            if self.model is not None:  # re-check after acquiring lock
+                return
 
-        state_dict = torch.load(DEEP_WEED_MODEL_PATH, map_location="cpu")
-        self.model.load_state_dict(state_dict)
-        self.model.eval()
+            with open(DEEP_WEED_CLASSES_PATH) as f:
+                self.classes = json.load(f)
+            num_classes = len(self.classes)
 
-        # matches eval_transform from training (Resize 256 -> CenterCrop 224)
-        self.transform = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                  std=[0.229, 0.224, 0.225]),
-        ])
+            # must match train_deepweeds_model.py build_model() architecture
+            model = models.resnet18(weights=None)
+            in_features = model.fc.in_features
+            model.fc = nn.Linear(in_features, num_classes)
+
+            state_dict = torch.load(DEEP_WEED_MODEL_PATH, map_location="cpu")
+            model.load_state_dict(state_dict)
+            model.eval()
+            self.model = model
+
+            # matches eval_transform from training (Resize 256 -> CenterCrop 224)
+            self.transform = transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                      std=[0.229, 0.224, 0.225]),
+            ])
 
     def predict(self, image_bytes: bytes):
+        self._ensure_loaded()
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         tensor = self.transform(img).unsqueeze(0)
         with torch.no_grad():
