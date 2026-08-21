@@ -10,6 +10,7 @@ Pipeline: Tamil audio -> Tamil text -> English text (for intent routing)
 
 import os
 import uuid
+import threading
 import whisper
 from gtts import gTTS
 from deep_translator import GoogleTranslator   # pip install deep-translator (free, no API key)
@@ -20,9 +21,18 @@ from app.utils.logger import logger
 
 class VoiceService:
     def __init__(self):
-        logger.info(f"Loading Whisper model: {WHISPER_MODEL_SIZE}")
-        self.model = whisper.load_model(WHISPER_MODEL_SIZE)
+        self.model = None
+        self._lock = threading.Lock()
         os.makedirs(VOICE_AUDIO_OUTPUT_DIR, exist_ok=True)
+
+    def _ensure_loaded(self):
+        if self.model is not None:
+            return
+        with self._lock:
+            if self.model is not None:
+                return
+            logger.info(f"Loading Whisper model: {WHISPER_MODEL_SIZE}")
+            self.model = whisper.load_model(WHISPER_MODEL_SIZE)
 
     def transcribe(self, audio_file_path: str, language: str = DEFAULT_VOICE_LANGUAGE) -> dict:
         """
@@ -36,6 +46,7 @@ class VoiceService:
 
         Returns: {"text": "<tamil text>", "language": "ta"}
         """
+        self._ensure_loaded()
         try:
             result = self.model.transcribe(str(audio_file_path), language=language)
             return {
