@@ -16,7 +16,7 @@ DEEP_WEED_CLASSES_PATH = ML_MODELS_DIR / "deepweeds_classes.json"
 
 STATIC_DIR = BASE_DIR / "app" / "static"
 VOICE_AUDIO_OUTPUT_DIR = STATIC_DIR / "voice_responses"
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
+WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "tiny")  # was "base"
 DEFAULT_VOICE_LANGUAGE = os.getenv("DEFAULT_VOICE_LANGUAGE", "ta")
 
 load_dotenv()
