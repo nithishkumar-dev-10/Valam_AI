@@ -48,4 +48,6 @@ python-dotenv
 scikit-learn
 uvicorn
 openai-whisper
-gTTS
+gTTSpillow==12.3.0
+torch==2.13.0
+torchvision==0.28.0
