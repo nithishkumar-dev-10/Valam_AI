@@ -52,6 +52,9 @@ app.include_router(crop.router)
 app.include_router(disease.router)
 app.include_router(deep_weed.router)
 app.include_router(voice.router)
+from fastapi.staticfiles import StaticFiles
+
+app.mount("/console", StaticFiles(directory="app/Valam-console", html=True), name="console")
 
 
 @app.get("/")
