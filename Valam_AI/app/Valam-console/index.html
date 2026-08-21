@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Valam AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ TOP BAR ============ -->
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">வ</span>
+    <span class="brand-name">Valam <em>AI</em></span>
+  </div>
+  <div class="topbar-right">
+    <div class="api-config">
+      <label for="apiBase">API</label>
+      <input type="text" id="apiBase" value="https://valam-ai.onrender.com" spellcheck="false">
+    </div>
+    <div class="status-pill" id="connPill"><span class="dot"></span>checking</div>
+  </div>
+</header>
+
+<main id="app">
+
+  <!-- ============ AUTH: SIGNUP ============ -->
+  <section class="auth-screen" id="view-signup">
+    <div class="auth-visual">
+      <div class="auth-visual-inner">
+        <span class="eyebrow">Field to backend, in one call</span>
+        <h1>Built for the farmer<br>who speaks first,<br><em>types never.</em></h1>
+        <p class="auth-copy">Crop recommendations, disease detection, and weed identification — driven by a voice query in Tamil, a photo, and a GPS pin.</p>
+        <div class="visual-stat-row">
+          <div class="visual-stat"><strong>3</strong><span>ML/DL models</span></div>
+          <div class="visual-stat"><strong>ta</strong><span>voice-native</span></div>
+          <div class="visual-stat"><strong>1</strong><span>API, full pipeline</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="auth-form-panel">
+      <div class="auth-form-wrap">
+        <h2>Create an account</h2>
+        <p class="form-sub">Register a farmer profile to start testing the pipeline.</p>
+
+        <label for="suName">Full name</label>
+        <input type="text" id="suName" placeholder="Pranu Saravanan" autocomplete="name">
+
+        <label for="suPhone">Phone number</label>
+        <input type="text" id="suPhone" placeholder="10-digit number" autocomplete="tel">
+
+        <label for="suPass">Password</label>
+        <input type="password" id="suPass" placeholder="••••••••" autocomplete="new-password">
+
+        <button class="btn-primary" id="suSubmit">Create account</button>
+        <div class="form-msg" id="suMsg"></div>
+
+        <div class="form-switch">Already registered? <a href="#" id="goLogin">Log in</a></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ AUTH: LOGIN ============ -->
+  <section class="auth-screen hidden" id="view-login">
+    <div class="auth-visual">
+      <div class="auth-visual-inner">
+        <span class="eyebrow">Welcome back</span>
+        <h1>Pick up where<br>the last field<br><em>visit left off.</em></h1>
+        <p class="auth-copy">Your farmer profile, prediction history, and voice sessions are one login away.</p>
+      </div>
+    </div>
+    <div class="auth-form-panel">
+      <div class="auth-form-wrap">
+        <h2>Log in</h2>
+        <p class="form-sub">Use the phone number and password you signed up with.</p>
+
+        <label for="liPhone">Phone number</label>
+        <input type="text" id="liPhone" placeholder="10-digit number" autocomplete="tel">
+
+        <label for="liPass">Password</label>
+        <input type="password" id="liPass" placeholder="••••••••" autocomplete="current-password">
+
+        <button class="btn-primary" id="liSubmit">Log in</button>
+        <div class="form-msg" id="liMsg"></div>
+
+        <div class="form-switch">New here? <a href="#" id="goSignup">Create an account</a></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DASHBOARD ============ -->
+  <section class="dashboard hidden" id="view-dashboard">
+
+    <nav class="side-nav">
+      <div class="farmer-card">
+        <div class="farmer-avatar" id="farmerInitial">?</div>
+        <div>
+          <div class="farmer-name" id="farmerName">—</div>
+          <div class="farmer-phone" id="farmerPhone">—</div>
+        </div>
+      </div>
+      <button class="nav-item active" data-tab="overview">Overview</button>
+      <button class="nav-item" data-tab="voice">Voice Assistant</button>
+      <button class="nav-item" data-tab="log">Activity Log</button>
+      <button class="btn-ghost" id="logoutBtn">Log out</button>
+    </nav>
+
+    <div class="dash-content">
+
+      <!-- OVERVIEW TAB -->
+      <div class="tab-pane active" id="tab-overview">
+        <div class="pane-header">
+          <h2>Overview</h2>
+          <span class="pane-sub">Session status and available endpoints</span>
+        </div>
+        <div class="card-grid">
+          <div class="metric-card">
+            <span class="metric-label">Session</span>
+            <span class="metric-value ok" id="sessionMetric">Authenticated</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Backend</span>
+            <span class="metric-value" id="backendMetric">—</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Queries sent</span>
+            <span class="metric-value" id="queryCount">0</span>
+          </div>
+        </div>
+
+        <div class="panel-block">
+          <h3>Wired endpoints</h3>
+          <div class="endpoint-list">
+            <div class="endpoint-row"><span class="method post">POST</span><span>/auth/signup</span><span class="tag live">live</span></div>
+            <div class="endpoint-row"><span class="method post">POST</span><span>/auth/login</span><span class="tag live">live</span></div>
+            <div class="endpoint-row"><span class="method post">POST</span><span>/voice/query</span><span class="tag live">live</span></div>
+            <div class="endpoint-row"><span class="method get">GET</span><span>/crop, /disease, /deep_weed</span><span class="tag pending">not in this console yet</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VOICE TAB -->
+      <div class="tab-pane" id="tab-voice">
+        <div class="pane-header">
+          <h2>Voice Assistant</h2>
+          <span class="pane-sub">Record a query, attach a photo if relevant, run the full pipeline</span>
+        </div>
+
+        <div class="voice-grid">
+          <div class="panel-block">
+            <h3>1. Record</h3>
+            <div class="record-zone">
+              <button class="rec-btn" id="recBtn">
+                <span class="rec-dot"></span>
+              </button>
+              <div class="rec-status" id="recStatus">Tap to record</div>
+              <div class="wave" id="wave">
+                <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <h3>2. Context <em>(optional)</em></h3>
+            <label for="imageFile">Photo — for disease / weed intents</label>
+            <input type="file" id="imageFile" accept="image/*">
+
+            <div class="latlng-row">
+              <div>
+                <label for="lat">Latitude</label>
+                <input type="text" id="lat" placeholder="10.8505">
+              </div>
+              <div>
+                <label for="lng">Longitude</label>
+                <input type="text" id="lng" placeholder="76.2711">
+              </div>
+            </div>
+            <button class="btn-ghost small" id="gpsBtn">Use my location</button>
+          </div>
+        </div>
+
+        <button class="btn-primary" id="sendVoiceBtn" disabled>Record audio to enable send</button>
+
+        <div class="panel-block result-block hidden" id="resultBlock">
+          <h3>Response</h3>
+          <div class="result-grid">
+            <div><span class="result-label">Intent</span><span class="result-value" id="rIntent">—</span></div>
+            <div><span class="result-label">Transcribed (Tamil)</span><span class="result-value" id="rTranscribed">—</span></div>
+            <div class="span2"><span class="result-label">Response (Tamil)</span><span class="result-value" id="rResponse">—</span></div>
+          </div>
+          <audio controls id="rAudio" class="hidden"></audio>
+        </div>
+      </div>
+
+      <!-- LOG TAB -->
+      <div class="tab-pane" id="tab-log">
+        <div class="pane-header">
+          <h2>Activity Log</h2>
+          <span class="pane-sub">Every request/response this session, newest first</span>
+        </div>
+        <div class="log-console" id="log"></div>
+      </div>
+
+    </div>
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
