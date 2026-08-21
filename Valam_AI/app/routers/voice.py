@@ -74,14 +74,18 @@ async def voice_query(
         # 5. English response -> Tamil response
         tamil_response = voice_service.translate(routed["response_text"], source="en", target="ta")
 
-        # 6. Tamil response -> Tamil audio
+        # 6. Tamil response -> Tamil audio.
+        # synthesize() returns a local filesystem path -- a browser can't
+        # fetch that, so convert it to the public /static URL that main.py
+        # now serves via StaticFiles.
         audio_response_path = voice_service.synthesize(tamil_response, language=DEFAULT_VOICE_LANGUAGE)
+        audio_response_url = f"/static/voice_responses/{os.path.basename(audio_response_path)}"
 
         return VoiceQueryResponse(
             transcribed_text=tamil_text,
             detected_language=DEFAULT_VOICE_LANGUAGE,
             response_text=tamil_response,
-            audio_response_path=audio_response_path,
+            audio_response_path=audio_response_url,
             intent=routed["intent"],
         )
 
