@@ -8,13 +8,13 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, classification_report
 
-# ---- Paths ----
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PATH = BASE_DIR / "data" / "crop_recommendation.csv"
 MODEL_DIR = BASE_DIR / "app" / "ml_models"
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-# ---- 1. Load data ----
+
 df = pd.read_csv(DATA_PATH)
 print(f"Loaded dataset: {df.shape[0]} rows, {df.shape[1]} columns")
 print(f"Crops in dataset: {df['label'].nunique()}")
