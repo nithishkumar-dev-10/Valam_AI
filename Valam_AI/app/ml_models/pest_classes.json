@@ -1,10 +1,11 @@
 [
-  "Aphid",
-  "Armyworm",
-  "Bollworm",
-  "Fruit_fly",
-  "Leafhopper",
-  "Mealybug",
-  "Thrips",
-  "Whitefly"
+  "aphids",
+  "armyworm",
+  "beetle",
+  "bollworm",
+  "grasshopper",
+  "mites",
+  "mosquito",
+  "sawfly",
+  "stem_borer"
 ]

@@ -1,8 +1,8 @@
 """
 app/services/dl/voice_service.py
 
-Handles Speech-to-Text (local Whisper, forced language), translation
-(deep-translator, free), and Text-to-Speech (gTTS).
+Handles Speech-to-Text (local Whisper, with optional auto language
+detection), translation (deep-translator, free), and Text-to-Speech (gTTS).
 
 Pipeline: Tamil audio -> Tamil text -> English text (for intent routing)
           -> English response -> Tamil response -> Tamil audio
@@ -19,8 +19,13 @@ from app.config import WHISPER_MODEL_SIZE, VOICE_AUDIO_OUTPUT_DIR, DEFAULT_VOICE
 from app.utils.logger import logger
 
 torch.set_num_threads(1)
+
+
 class VoiceService:
-    def __init__(self):
+    def __init__(self, model_size: str | None = None):
+        # model_size=None -> use config WHISPER_MODEL_SIZE. A CLI can pass an
+        # explicit size (e.g. "base") for better auto language detection.
+        self._model_size = model_size
         self.model = None
         self._lock = threading.Lock()
         os.makedirs(VOICE_AUDIO_OUTPUT_DIR, exist_ok=True)
@@ -31,31 +36,40 @@ class VoiceService:
         with self._lock:
             if self.model is not None:
                 return
-            logger.info(f"Loading Whisper model: {WHISPER_MODEL_SIZE}")
-            self.model = whisper.load_model(WHISPER_MODEL_SIZE)
+            size = self._model_size or WHISPER_MODEL_SIZE
+            logger.info(f"Loading Whisper model: {size}")
+            self.model = whisper.load_model(size)
 
-    def transcribe(self, audio_file_path: str, language: str = DEFAULT_VOICE_LANGUAGE) -> dict:
+    def transcribe(
+        self, audio_file_path: str, language: str | None = DEFAULT_VOICE_LANGUAGE
+    ) -> dict:
         """
-        Transcribes speech in the given language (default Tamil).
+        Transcribes speech.
 
-        IMPORTANT: we FORCE the language instead of letting Whisper auto-detect.
-        On the "base" model, auto-detect on Tamil speech is unreliable and can
-        misfire as a completely different language (seen: Tamil -> detected as
-        Greek). Forcing language="ta" fixes this since we already know the
-        target audience is Tamil Nadu farmers.
+        language=None -> Whisper AUTO-DETECTS the language. The detected
+        code is returned (e.g. "ta"/"en") along with its confidence.
+        language="ta" -> forced Tamil (existing backend behavior; the micro-
+        phone path already knows the farmer is Tamil-speaking).
 
-        Returns: {"text": "<tamil text>", "language": "ta"}
+        Returns: {"text": "<transcribed text>", "language": "<code>",
+                  "language_probability": <float | None>}
         """
         self._ensure_loaded()
-        try:
-            result = self.model.transcribe(str(audio_file_path), language=language)
-            return {
-                "text": result["text"].strip(),
-                "language": language,
-            }
-        except Exception as e:
-            logger.error(f"Whisper transcription failed: {e}")
-            raise
+        kwargs = {} if language is None else {"language": language}
+        result = self.model.transcribe(str(audio_file_path), **kwargs)
+
+        detected = result.get("language") or language or "en"
+
+        prob = None
+        segments = result.get("segments") or []
+        if segments:
+            prob = segments[0].get("language_probability")
+
+        return {
+            "text": result["text"].strip(),
+            "language": detected,
+            "language_probability": prob,
+        }
 
     def translate(self, text: str, source: str, target: str) -> str:
         """

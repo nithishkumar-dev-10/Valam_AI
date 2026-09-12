@@ -70,7 +70,7 @@ async def _handle_crop_intent(latitude: Optional[float], longitude: Optional[flo
         N, P, K, ph = soil["N"], soil["P"], soil["K"], soil["ph"]
         temperature = weather["temperature"]
         humidity = weather["humidity"]
-        rainfall = weather["rainfall"]
+        rainfall = weather.get("avg_annual_rainfall", weather.get("rainfall"))
 
         crop_name, confidence = crop_predictor.predict(
             N=N, P=P, K=K,
@@ -81,10 +81,24 @@ async def _handle_crop_intent(latitude: Optional[float], longitude: Optional[flo
         confidence_pct = round(confidence * 100)
         confidence_word = _confidence_label(confidence)
 
-        return (
+        base = (
             f"Based on your land's soil and current weather, I recommend growing {crop_name}. "
             f"Confidence: {confidence_pct}% ({confidence_word})."
         )
+
+        # Surfacing Part 1's provenance fields in plain language (Issue 1/2)
+        resolution = soil.get("data_resolution", "unknown")
+        if soil.get("input_confidence") == "low":
+            base += (
+                " Note: this is based on general regional averages, "
+                "not your exact field's soil data."
+            )
+        elif resolution == "district":
+            base += f" Soil data is a district-level estimate for {soil.get('district')}."
+        elif resolution == "state":
+            base += f" Soil data is a state-level estimate for {soil.get('state')}."
+
+        return base
 
     except Exception as e:
         logger.error(f"Crop intent handling failed: {e}")

@@ -1,10 +1,8 @@
-
-
 import pandas as pd
 import joblib
 from pathlib import Path
-from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, classification_report
 
@@ -29,22 +27,34 @@ y = df[TARGET]
 label_encoder = LabelEncoder()
 y_encoded = label_encoder.fit_transform(y)
 
-# ---- 3. Train/test split ----
+# ---- 3. Regularized Random Forest ----
+# max_depth + min_samples_leaf stop the trees from memorizing the training
+# rows (old model hit 100% train acc), which helps generalization to the
+# district-level input features the app feeds in.
+model = RandomForestClassifier(
+    n_estimators=200,
+    max_depth=12,
+    min_samples_leaf=2,
+    random_state=42,
+)
+model.fit(X, y_encoded)
+
+# ---- 4. Honest generalization estimate via 5-fold CV ----
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+cv_scores = cross_val_score(model, X, y_encoded, cv=cv)
+print(f"\n5-fold CV Accuracy: {cv_scores.mean() * 100:.2f}% (+/- {cv_scores.std() * 100:.2f}%)")
+print(f"per-fold: {[round(s * 100, 2) for s in cv_scores]}")
+
+# ---- 5. Evaluate on a held-out split (same split style as before) ----
+from sklearn.model_selection import train_test_split
 X_train, X_test, y_train, y_test = train_test_split(
     X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
 )
-
-# ---- 4. Train Random Forest ----
-model = RandomForestClassifier(
-    n_estimators=200,
-    max_depth=None,
-    random_state=42,
-    n_jobs=-1
+model_holdout = RandomForestClassifier(
+    n_estimators=200, max_depth=12, min_samples_leaf=2, random_state=42
 )
-model.fit(X_train, y_train)
-
-# ---- 5. Evaluate ----
-y_pred = model.predict(X_test)
+model_holdout.fit(X_train, y_train)
+y_pred = model_holdout.predict(X_test)
 acc = accuracy_score(y_test, y_pred)
 print(f"\nTest Accuracy: {acc * 100:.2f}%\n")
 print(classification_report(y_test, y_pred, target_names=label_encoder.classes_))
