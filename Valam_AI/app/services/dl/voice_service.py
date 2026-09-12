@@ -7,7 +7,7 @@ Handles Speech-to-Text (local Whisper, forced language), translation
 Pipeline: Tamil audio -> Tamil text -> English text (for intent routing)
           -> English response -> Tamil response -> Tamil audio
 """
-
+import torch
 import os
 import uuid
 import threading
@@ -18,7 +18,7 @@ from deep_translator import GoogleTranslator   # pip install deep-translator (fr
 from app.config import WHISPER_MODEL_SIZE, VOICE_AUDIO_OUTPUT_DIR, DEFAULT_VOICE_LANGUAGE
 from app.utils.logger import logger
 
-
+torch.set_num_threads(1)
 class VoiceService:
     def __init__(self):
         self.model = None
