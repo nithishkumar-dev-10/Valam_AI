@@ -1,8 +1,20 @@
+import os
+import datetime
+
 import httpx
 from app.config import WEATHER_API_KEY
 
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
 NASA_POWER_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
+
+# NASA POWER rainfall is reported as a multi-day average. For crop
+# *recommendation* the meaningful signal is the long-run annual average
+# (crops are selected for the climate, not this week's weather), so the
+# default window is the current calendar year. Temperature/humidity remain
+# live (real-time) from OpenWeather — only rainfall is an annual average
+# and it is labeled as such (`avg_annual_rainfall`) so it is never
+# mistaken for current conditions.
+# Set RAINFALL_START/RAINFALL_END (YYYYMMDD) to override, e.g. rolling 90 days.
 
 
 async def fetch_weather_features(
@@ -83,6 +95,7 @@ async def fetch_weather_features(
         "pressure": pressure,
         "wind_speed": wind_speed,
         "weather_description": weather_description,
+        "avg_annual_rainfall": rainfall,
         "rainfall": rainfall,
         "source": "openweather+nasa_power",
         "latitude": latitude,
@@ -95,16 +108,22 @@ async def fetch_nasa_rainfall(
     longitude: float,
 ):
     """
-    Fetch rainfall information from NASA POWER.
+    Fetch the ANNUAL AVERAGE rainfall (mm/day, NASA POWER), configurable
+    to any window via RAINFALL_START/RAINFALL_END env vars. The default
+    window is the current calendar year.
     """
+
+    today = datetime.date.today()
+    default_start = f"{today.year:04d}0101"
+    default_end = f"{today.year:04d}1231"
 
     params = {
         "latitude": latitude,
         "longitude": longitude,
         "community": "AG",
         "parameters": "PRECTOTCORR",
-        "start": "20260101",
-        "end": "20261231",
+        "start": os.getenv("RAINFALL_START", default_start),
+        "end": os.getenv("RAINFALL_END", default_end),
         "format": "JSON",
     }
 
