@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import Base, engine
 from app.models import farmer  # noqa: F401 -- registers the model before create_all
-from app.routers import crop, disease, deep_weed, voice, auth
+from app.routers import crop, disease, deep_weed, voice, auth, pest
 from app.config import STATIC_DIR, VOICE_AUDIO_OUTPUT_DIR
 
 # Creates the farmers table on startup if it doesn't exist yet.
@@ -52,6 +52,7 @@ app.include_router(crop.router)
 app.include_router(disease.router)
 app.include_router(deep_weed.router)
 app.include_router(voice.router)
+app.include_router(pest.router)
 from fastapi.staticfiles import StaticFiles
 
 app.mount("/console", StaticFiles(directory="app/Valam-console", html=True), name="console")
