@@ -16,6 +16,7 @@ DEEP_WEED_CLASSES_PATH = ML_MODELS_DIR / "deepweeds_classes.json"
 
 STATIC_DIR = BASE_DIR / "app" / "static"
 VOICE_AUDIO_OUTPUT_DIR = STATIC_DIR / "voice_responses"
+VOICE_AUDIO_RETENTION_DAYS = int(os.getenv("VOICE_AUDIO_RETENTION_DAYS", "30"))
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "backend.log"
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "tiny")  # was "base"

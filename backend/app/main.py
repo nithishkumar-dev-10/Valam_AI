@@ -4,6 +4,8 @@
 
 import os
 import logging
+import time
+from contextlib import asynccontextmanager
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -24,7 +26,7 @@ import sqlalchemy
 from app.database import Base, engine
 from app.models import farmer  # noqa: F401 -- registers the model before create_all
 from app.routers import crop, disease, deep_weed, voice, auth, pest, admin
-from app.config import STATIC_DIR, VOICE_AUDIO_OUTPUT_DIR, CORS_ORIGINS, ADMIN_ACCESS_KEY
+from app.config import STATIC_DIR, VOICE_AUDIO_OUTPUT_DIR, VOICE_AUDIO_RETENTION_DAYS, CORS_ORIGINS, ADMIN_ACCESS_KEY
 from app.rate_limiter import limiter
 from app.middleware import AccessLogMiddleware
 
@@ -35,6 +37,21 @@ logger = logging.getLogger("valam_ai.main")
 Base.metadata.create_all(bind=engine)
 
 os.makedirs(VOICE_AUDIO_OUTPUT_DIR, exist_ok=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup cleanup: purge TTS preview clips older than the retention
+    window (VOICE_AUDIO_RETENTION_DAYS). Voice summaries are user-derived
+    data, so they are never kept indefinitely — see docs/PRIVACY_POLICY.md."""
+    retention_seconds = VOICE_AUDIO_RETENTION_DAYS * 86400
+    for path in VOICE_AUDIO_OUTPUT_DIR.glob("*.mp3"):
+        try:
+            if time.time() - path.stat().st_mtime > retention_seconds:
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    yield
 
 API_DESCRIPTION = """
 Valam AI is a voice-first agri assistant for Indian farmers. A farmer sends a
@@ -84,6 +101,7 @@ app = FastAPI(
     title="Valam AI — Farmer Assistant API",
     description=API_DESCRIPTION,
     version="1.0.0",
+    lifespan=lifespan,
     contact={
         "name": "Valam AI",
         "url": "https://valam.in",
