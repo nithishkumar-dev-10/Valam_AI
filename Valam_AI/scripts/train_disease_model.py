@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, models
 
 
@@ -41,16 +41,38 @@ def main():
     num_classes = len(class_names)
     print(f"Found {len(full_dataset)} images across {num_classes} classes")
 
-    # ---- 5. Split into train (85%) and validation (15%) ----
-    val_size = int(0.15 * len(full_dataset))
-    train_size = len(full_dataset) - val_size
-    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+    # ---- 5. Leak-safe split: group by source plant/session ----
+    # PlantVillage files are random UUIDs with no session metadata, so we
+    # pre-grouped images by perceptual-hash proximity (same leaf/plant/session
+    # form one group) in scripts/prepare_plantvillage_split.py and split by
+    # whole group. This prevents same-plant images from straddling train/val.
+    splt_path = BASE_DIR / "data" / "plantvillage_split.json"
+    if not splt_path.exists():
+        raise FileNotFoundError(
+            f"{splt_path} not found — run scripts/prepare_plantvillage_split.py first"
+        )
+    with open(splt_path) as f:
+        split_map = json.load(f)
+
+    from torch.utils.data import Subset
+
+    train_idx, val_idx = [], []
+    for i, (path, _) in enumerate(full_dataset.samples):
+        rel = str(Path(path).resolve().relative_to(DATA_DIR.resolve()))
+        split = split_map.get(rel, {}).get("split")
+        if split == "train":
+            train_idx.append(i)
+        elif split == "val":
+            val_idx.append(i)
+
+    train_dataset = Subset(full_dataset, train_idx)
+    val_dataset = Subset(full_dataset, val_idx)
 
     BATCH_SIZE = 32
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4)
 
-    print(f"Train images: {train_size} | Validation images: {val_size}")
+    print(f"Train images: {len(train_idx)} | Validation images: {len(val_idx)} (group split)")
 
     # ---- 6. Load pre-trained MobileNetV2, replace final layer ----
     model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
@@ -80,13 +102,13 @@ def main():
             loss.backward()
             optimizer.step()
 
-            running_loss += loss.item() * images.size(0)
+            running_loss += loss.detach() * images.size(0)
             _, predicted = outputs.max(1)
-            correct += predicted.eq(labels).sum().item()
+            correct += predicted.eq(labels).sum()
             total += labels.size(0)
 
-        train_acc = 100 * correct / total
-        train_loss = running_loss / total
+        train_acc = 100 * float(correct) / total
+        train_loss = float(running_loss) / total
 
         model.eval()
         val_correct = 0
@@ -96,10 +118,10 @@ def main():
                 images, labels = images.to(device), labels.to(device)
                 outputs = model(images)
                 _, predicted = outputs.max(1)
-                val_correct += predicted.eq(labels).sum().item()
+                val_correct += predicted.eq(labels).sum()
                 val_total += labels.size(0)
 
-        val_acc = 100 * val_correct / val_total
+        val_acc = 100 * float(val_correct) / val_total
         elapsed = time.time() - start
 
         print(f"Epoch {epoch+1}/{EPOCHS} | "

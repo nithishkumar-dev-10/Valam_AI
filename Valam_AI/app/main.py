@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -33,6 +35,8 @@ app = FastAPI(
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 
 app.add_middleware(
@@ -53,9 +57,14 @@ app.include_router(disease.router)
 app.include_router(deep_weed.router)
 app.include_router(voice.router)
 app.include_router(pest.router)
-from fastapi.staticfiles import StaticFiles
 
-app.mount("/console", StaticFiles(directory="app/Valam-console", html=True), name="console")
+# A built React app (frontend/ -> frontend/dist) is served at / once built
+# (`cd frontend && npm run build`). During frontend development use the Vite
+# dev server instead (`npm run dev`); without a build this mount is skipped
+# and / returns the backend status JSON below.
+FRONTEND_DIST = Path("frontend/dist")
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
 
 
 @app.get("/")
