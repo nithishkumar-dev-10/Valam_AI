@@ -19,6 +19,18 @@ class CropOutput(BaseModel):
     weather_source: str
     location: str
     warning: str | None = None
+    # Part 1: explicit provenance of the soil/recommendation inputs.
+    # Which tier of the fallback chain actually produced the N/P/K/pH values.
+    data_resolution: str  # "district" | "state" | "fallback" | "manual"
+    # How trustworthy those values are:
+    #   high   -> soil health card / manual measured input
+    #   medium -> regional state-level nutrient index
+    #   low    -> generic training-data median (no regional signal)
+    input_confidence: str
+    # Human-readable, prominent note surfaced to the user whenever the
+    # recommendation is based on generic averages (input_confidence == "low").
+    # Mirrors `warning` but is guaranteed to be set for low-confidence inputs.
+    data_quality_note: str | None = None
 
 
 class DiseaseOutput(BaseModel):

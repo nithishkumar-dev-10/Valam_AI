@@ -1,23 +1,31 @@
 """
-scripts/evaluate_all.py
+scripts/evaluate.py
 
-Combined evaluation script for all 4 Valam_AI models:
-  1. crop_recommender.pkl   (sklearn-style tabular classifier)
-  2. disease_cnn.pt         (PyTorch CNN, PlantVillage dataset)
-  3. deepweeds_model.pt     (PyTorch CNN, DeepWeeds dataset)
-  4. weed_pest_model        (PyTorch/sklearn - fill in MODEL_TYPE + paths below)
+Combined evaluation for all 4 Valam_AI models:
+  1. crop_recommender.pkl   (sklearn tabular classifier)
+  2. disease_cnn.pt         (MobileNetV2 CNN, PlantVillage dataset)
+  3. deepweeds_model.pt     (ResNet18 CNN, DeepWeeds dataset)
+  4. pest_model.pt          (MobileNetV2 CNN, pest dataset)
 
 Run:
-    python scripts/evaluate_all.py                 # run all
-    python scripts/evaluate_all.py --model crop     # run just one
-    python scripts/evaluate_all.py --model disease
-    python scripts/evaluate_all.py --model deepweeds
-    python scripts/evaluate_all.py --model weed_pest
+    python scripts/evaluate.py                       # run all
+    python scripts/evaluate.py --model crop          # run just one
+    python scripts/evaluate.py --model disease
+    python scripts/evaluate.py --model deepweeds
+    python scripts/evaluate.py --model pest
 
 Outputs a per-model classification report (accuracy, per-class precision/
 recall/F1, macro & weighted avgs) plus a confusion matrix, and writes a
 combined summary to reports/evaluation_summary.json.
 """
+
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import argparse
 import json
@@ -39,6 +47,16 @@ ML_MODELS = ROOT / "app" / "ml_models"
 DATA = ROOT / "data"
 REPORTS_DIR = ROOT / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
+
+
+def pick_device():
+    import torch
+
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
 
 
 # ---------------------------------------------------------------------------
@@ -164,10 +182,52 @@ def evaluate_crop_recommender(test_size=0.2, random_state=42):
 
 
 # ---------------------------------------------------------------------------
+# Model builders — must match the training scripts' architectures exactly.
+# The .pt artifacts are state_dicts, so rebuild the architecture, then
+# load_state_dict (same approach as the app's dl services).
+# ---------------------------------------------------------------------------
+def build_disease_model(num_classes):
+    import torch.nn as nn
+    from torchvision import models
+
+    model = models.mobilenet_v2(weights=None)
+    model.classifier[1] = nn.Linear(model.last_channel, num_classes)
+    return model
+
+
+def build_deepweeds_model(num_classes):
+    import torch.nn as nn
+    from torchvision import models
+
+    model = models.resnet18(weights=None)
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    return model
+
+
+def build_pest_model(num_classes):
+    import torch.nn as nn
+    from torchvision import models
+
+    model = models.mobilenet_v2(weights=None)
+    model.classifier[1] = nn.Linear(1280, num_classes)
+    return model
+
+
+def load_state_dict(model_path, build_model, num_classes, device):
+    import torch
+
+    model = build_model(num_classes)
+    state_dict = torch.load(model_path, map_location="cpu")
+    model.load_state_dict(state_dict)
+    model.to(device).eval()
+    return model
+
+
+# ---------------------------------------------------------------------------
 # Shared PyTorch image-classifier eval loop — expects a pre-split test dir
 # (ImageFolder layout: test_dir/<class_name>/*.jpg)
 # ---------------------------------------------------------------------------
-def evaluate_torch_image_model(model_name, model_path, test_dir, class_names, device="cpu"):
+def evaluate_torch_image_model(model_name, model_path, test_dir, class_names, build_model, device):
     import torch
     from torch.utils.data import DataLoader
     from torchvision import datasets, transforms
@@ -182,9 +242,7 @@ def evaluate_torch_image_model(model_name, model_path, test_dir, class_names, de
 
     dataset = datasets.ImageFolder(test_dir, transform=transform)
     loader = DataLoader(dataset, batch_size=32, shuffle=False)
-
-    model = torch.load(model_path, map_location=device)
-    model.eval()
+    model = load_state_dict(model_path, build_model, len(dataset.classes), device)
 
     y_true, y_pred = [], []
     with torch.no_grad():
@@ -200,12 +258,13 @@ def evaluate_torch_image_model(model_name, model_path, test_dir, class_names, de
 
 
 # ---------------------------------------------------------------------------
-# Variant for datasets with NO pre-made split (e.g. plantvillage): build one
-# ImageFolder over the whole flat class-folder tree, then take a stratified
-# held-out subset as the "test" set.
+# Variant for datasets with NO pre-made split (e.g. plantvillage, pest_data):
+# build one ImageFolder over the whole flat class-folder tree, then take a
+# stratified held-out subset as the "test" set.
 # ---------------------------------------------------------------------------
 def evaluate_torch_image_model_no_split(
-    model_name, model_path, data_dir, class_names, test_size=0.2, random_state=42, device="cpu"
+    model_name, model_path, data_dir, class_names, build_model, test_size=0.2,
+    random_state=42, device=None,
 ):
     import torch
     from torch.utils.data import DataLoader, Subset
@@ -225,16 +284,15 @@ def evaluate_torch_image_model_no_split(
     targets = [dataset.samples[i][1] for i in indices]
 
     # NOTE: this is a fresh random split, not the split the model was
-    # trained/validated on — if train_disease_model.py saved its own
-    # test indices/list, swap those in here instead for a true held-out eval.
+    # trained/validated on — if a training script saves its own held-out
+    # indices/list, swap those in here instead for a true held-out eval.
     _, test_idx = train_test_split(
         indices, test_size=test_size, random_state=random_state, stratify=targets
     )
     test_subset = Subset(dataset, test_idx)
     loader = DataLoader(test_subset, batch_size=32, shuffle=False)
 
-    model = torch.load(model_path, map_location=device)
-    model.eval()
+    model = load_state_dict(model_path, build_model, len(dataset.classes), device)
 
     y_true, y_pred = [], []
     with torch.no_grad():
@@ -250,13 +308,63 @@ def evaluate_torch_image_model_no_split(
 
 
 # ---------------------------------------------------------------------------
-# 2. Disease CNN (PlantVillage) — flat class folders, no pre-made split
+# Variant for datasets with a pre-computed group split (see
+# prepare_plantvillage_split.py): evaluate only on the images whose group was
+# assigned to "val". Identical groups are used by training, so same-plant/
+# same-session images never appear in both train and val.
+# ---------------------------------------------------------------------------
+def evaluate_torch_image_model_from_split(
+    model_name, model_path, data_dir, class_names, build_model, split_json, device,
+):
+    import torch
+    from torch.utils.data import DataLoader, Subset
+    from torchvision import datasets, transforms
+
+    transform = transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+
+    data_dir = Path(data_dir)
+    dataset = datasets.ImageFolder(str(data_dir), transform=transform)
+
+    split_map = json.loads(Path(split_json).read_text())
+    val_idx = [
+        i for i, (path, _) in enumerate(dataset.samples)
+        if split_map.get(str(Path(path).resolve().relative_to(data_dir.resolve())), {}).get("split") == "val"
+    ]
+    if not val_idx:
+        raise FileNotFoundError(f"No 'val' images found in {split_json}")
+
+    loader = DataLoader(Subset(dataset, val_idx), batch_size=32, shuffle=False)
+    model = load_state_dict(model_path, build_model, len(dataset.classes), device)
+
+    y_true, y_pred = [], []
+    with torch.no_grad():
+        for images, labels in loader:
+            images = images.to(device)
+            outputs = model(images)
+            preds = outputs.argmax(dim=1).cpu().numpy()
+            y_pred.extend(preds)
+            y_true.extend(labels.numpy())
+
+    names = class_names or [dataset.classes[i] for i in range(len(dataset.classes))]
+    return summarize(model_name, y_true, y_pred, names)
+
+
+# ---------------------------------------------------------------------------
+# 2. Disease CNN (PlantVillage) — leak-safe group split
 # ---------------------------------------------------------------------------
 def evaluate_disease_model():
+    device = pick_device()
     with open(ML_MODELS / "disease_classes.json") as f:
         class_names = json.load(f)
-    return evaluate_torch_image_model_no_split(
-        "disease_cnn", ML_MODELS / "disease_cnn.pt", DATA / "plantvillage", class_names
+    return evaluate_torch_image_model_from_split(
+        "disease_cnn", ML_MODELS / "disease_cnn.pt", DATA / "plantvillage",
+        class_names, build_disease_model, DATA / "plantvillage_split.json", device,
     )
 
 
@@ -264,28 +372,26 @@ def evaluate_disease_model():
 # 3. DeepWeeds CNN
 # ---------------------------------------------------------------------------
 def evaluate_deepweeds_model():
+    device = pick_device()
     with open(ML_MODELS / "deepweeds_classes.json") as f:
         class_names = json.load(f)
     test_dir = DATA / "deepweeds_processed" / "test"
     return evaluate_torch_image_model(
-        "deepweeds_model", ML_MODELS / "deepweeds_model.pt", test_dir, class_names
+        "deepweeds_model", ML_MODELS / "deepweeds_model.pt", test_dir,
+        class_names, build_deepweeds_model, device,
     )
 
 
 # ---------------------------------------------------------------------------
-# 4. Weed/Pest model — fill in once you confirm its format
+# 4. Pest CNN — flat class folders, no pre-made split
 # ---------------------------------------------------------------------------
-def evaluate_weed_pest_model():
-    """
-    TODO: this model's artifact wasn't visible in ml_models/, so fill in:
-      - MODEL_PATH: where the trained weed_pest model is saved
-      - MODEL_TYPE: "torch" (image classifier, reuse evaluate_torch_image_model)
-                    or "sklearn" (reuse evaluate_crop_recommender's pattern)
-      - TEST_DIR / CLASS_NAMES or TEST_CSV, depending on type
-    """
-    raise NotImplementedError(
-        "weed_pest_model artifact path/format not yet confirmed — "
-        "see TODO in evaluate_weed_pest_model()"
+def evaluate_pest_model():
+    device = pick_device()
+    with open(ML_MODELS / "pest_classes.json") as f:
+        class_names = json.load(f)
+    return evaluate_torch_image_model_no_split(
+        "pest_model", ML_MODELS / "pest_model.pt", DATA / "pest_data",
+        class_names, build_pest_model, device=device,
     )
 
 
@@ -294,7 +400,7 @@ MODEL_FUNCS = {
     "crop": evaluate_crop_recommender,
     "disease": evaluate_disease_model,
     "deepweeds": evaluate_deepweeds_model,
-    "weed_pest": evaluate_weed_pest_model,
+    "pest": evaluate_pest_model,
 }
 
 
