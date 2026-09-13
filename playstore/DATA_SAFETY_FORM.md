@@ -46,10 +46,10 @@ any of Google's listed "shared" purposes.
 | Password — collected? | Yes (stored **bcrypt-hashed** only) |
 | Other user info — collected? | No |
 
-*Deletion,* as asked by the form: **"No" for self-serve in-app, "Yes by request"** —
-users can request deletion via `privacy@valam.in` (30 days). The form's wording wants
-to know if the user can request deletion — answer **Yes** (via contact), and note in the
-policy that in-app self-service is coming.
+*Deletion,* as asked by the form: **"Yes"** in the strongest sense — users can delete
+their account **in-app** via `DELETE /api/v1/auth/me` (the app's account screen offers
+"Delete my account"), and can also request deletion by email to `privacy@valam.in`. The
+form's wording wants to know if the user can request deletion — answer **Yes** (self-serve).
 
 ---
 
@@ -107,7 +107,7 @@ These are the remaining categories; answer **No / not collected** for all of the
 | Question | Answer |
 |---|---|
 | Data encrypted in transit? | **Yes** — HTTPS/TLS (nginx + Let's Encrypt) |
-| Data deletion mechanism? | **Yes** — by user request (email `privacy@valam.in`, processed ≤30 days); media auto-purged 30 days |
+| Data deletion mechanism? | **Yes** — in-app "Delete my account" (`DELETE /api/v1/auth/me`) AND by email (`privacy@valam.in`, ≤30 days); media auto-purged 30 days |
 | Committed to Play Families policy / designed for children? | **No** — app is for adult farmers; not directed at children |
 
 ---

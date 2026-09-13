@@ -56,8 +56,9 @@ Contact: **privacy@valam.in**
 ### 1.5 Generated audio responses (TTS) — **stored up to 30 days**
 * After a query, the summary text is rendered as speech via **gTTS** and saved to
   `app/static/voice_responses/` so the app can play it back (`voice_service.synthesize`).
-* These are auto-purged on server startup after `VOICE_AUDIO_RETENTION_DAYS` (default 30)
-  days (`lifespan` in `app/main.py`).
+* These are auto-deleted after `VOICE_AUDIO_RETENTION_DAYS` (default 30) days:
+  a background sweep in `app/main.py` runs every 6 hours and purges any clip
+  older than the window (cleanup is continuous, not only on restart).
 * ⚠️ **Real transparency note:** these clips are text read aloud — the text is a
   paraphrase of the user's query and the results. They are deleted after 30 days and
   are not linked to account identity unless a logged-in token was used.
@@ -128,25 +129,30 @@ personal identifiers or user content**:
 | Account (name, phone, password hash) | Until user requests deletion (§5) |
 | Voice recordings & photos | Not stored; deleted post-processing |
 | GPS coordinates | Not stored; discarded after the request |
-| TTS preview audio | 30 days (auto-purged at startup) |
+| TTS preview audio | 30 days (continuous auto-purge, every 6 h) |
 | Access logs | Rotated; old files removed continuously |
 
 ---
 
 ## 5. Data deletion — how users can request it
 
-There is no in-app "delete account" button yet **and that is fine for the policy**:
-deletion is available by request.
+Farmers can delete their own account **in the app, at any time**: the app's
+account screen offers **"Delete my account"**, which calls
+`DELETE /api/v1/auth/me` with the logged-in token. This permanently removes the
+farmer's row (name, phone number, and password hash) from the database —
+no email request needed.
+
+For completeness, deletion can also be requested by email:
 
 1. The user emails **privacy@valam.in** from/with their registered phone number.
 2. We verify the phone number (the account's login identifier).
 3. Within **30 days** we permanently delete all matching rows in `farmers` in the
-   production database, and remove any TTS audio clips attributable to the account.
+   production database.
 4. We reply to confirm deletion.
 
-*(Recommended follow-up before GA: add a "Delete my account" call to a new
-`DELETE /api/v1/auth/me` endpoint so farmers can self-serve. The policy above is
-already compliant either way.)*
+Either way the account record is gone; voice/photo data is never tied to an
+account (those inputs are processed in memory and discarded, and any generated
+TTS clips are purged by the 30-day retention sweep), so no further data remains.
 
 ---
 
