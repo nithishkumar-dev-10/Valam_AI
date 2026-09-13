@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 from app.utils.logger import logger
 
 from app.schemas.simple_crop_schema import SimpleCropInput
@@ -45,7 +46,9 @@ class ManualCropInput(BaseModel):
 
 
 async def _predict_from_features(features: dict, location: str) -> CropOutput:
-    crop_name, confidence = crop_predictor.predict(
+    # joblib predict is a blocking call; keep it off the single event loop.
+    crop_name, confidence = await run_in_threadpool(
+        crop_predictor.predict,
         N=features["N"],
         P=features["P"],
         K=features["K"],

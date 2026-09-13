@@ -11,7 +11,7 @@ import logging
 from fastapi import UploadFile, HTTPException
 from PIL import Image
 
-from app.config import MAX_IMAGE_UPLOAD_MB, MAX_AUDIO_UPLOAD_MB
+from app.config import MAX_IMAGE_UPLOAD_MB, MAX_AUDIO_UPLOAD_MB, MAX_IMAGE_PIXELS
 
 logger = logging.getLogger("valam_ai.validation")
 
@@ -56,6 +56,25 @@ async def validate_image_upload(file: UploadFile) -> bytes:
         raise HTTPException(
             status_code=415,
             detail="File could not be decoded as an image.",
+        )
+
+    # Decompression-bomb guard (reads only header metadata, no pixel decode).
+    # A tiny compressed image with huge dimensions would otherwise eat GBs of
+    # RAM when the CNNs decode it. Reject before any actual decode happens.
+    try:
+        img = Image.open(io.BytesIO(data))
+        width, height = img.size
+    except Exception:
+        logger.warning("PIL could not read image dimensions (magic passed)")
+        raise HTTPException(
+            status_code=415,
+            detail="File could not be decoded as an image.",
+        )
+    if width * height > MAX_IMAGE_PIXELS:
+        logger.warning("Rejected oversized image %dx%d (> %d pixels)", width, height, MAX_IMAGE_PIXELS)
+        raise HTTPException(
+            status_code=415,
+            detail="Image dimensions exceed the allowed limit.",
         )
 
     return data

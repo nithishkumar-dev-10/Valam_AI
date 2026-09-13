@@ -11,6 +11,7 @@ Usage (on the VM):
 
 import os
 import re
+import secrets
 from collections import deque
 
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -23,7 +24,9 @@ _valid_level_re = re.compile(r"^(DEBUG|INFO|WARN|ERROR|CRITICAL)$", re.IGNORECAS
 
 
 def _require_admin(x_admin_key: str):
-    if not ADMIN_ACCESS_KEY or x_admin_key != ADMIN_ACCESS_KEY:
+    # Constant-time compare: a wrong-key probe leaks nothing about how close
+    # its guess is, and the same weight is given to missing vs wrong keys.
+    if not ADMIN_ACCESS_KEY or not secrets.compare_digest(x_admin_key, ADMIN_ACCESS_KEY):
         raise HTTPException(status_code=403, detail="Forbidden")
 
 

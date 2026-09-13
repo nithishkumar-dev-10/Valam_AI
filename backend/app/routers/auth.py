@@ -8,6 +8,8 @@ POST /api/v1/auth/login   -- returns access + refresh JWTs (rate-limited);
                             field holds the phone number)
 POST /api/v1/auth/refresh -- exchange a refresh token for a fresh pair
 GET  /api/v1/auth/me      -- profile for a valid access token
+DELETE /api/v1/auth/me    -- permanently delete the account (Play Store
+                            account-deletion requirement)
 """
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
@@ -194,3 +196,30 @@ def read_me(farmer: Farmer = Depends(get_current_farmer)):
     optional authenticated surface the frontend uses to fetch the profile.
     """
     return farmer
+
+
+@router.delete(
+    "/me",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete my account",
+    description=(
+        "Permanently deletes the logged-in farmer's account (name, phone, "
+        "password hash). Requires `Authorization: Bearer <access-token>`. "
+        "Required by the Google Play account-deletion policy — the farmer "
+        "must be able to delete their data in-app, not just by email.\n\n"
+        "Note: voice queries are anonymous (no account linkage), so no "
+        "associated voice/photo data is deleted alongside — that data is "
+        "auto-purged by the retention sweep (see privacy policy §5)."
+    ),
+    responses={
+        204: {"description": "Account deleted"},
+        401: {"description": "Not authenticated / invalid token"},
+    },
+)
+def delete_me(
+    farmer: Farmer = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
+):
+    """Delete the authenticated farmer row. 204 with no body."""
+    db.delete(farmer)
+    db.commit()

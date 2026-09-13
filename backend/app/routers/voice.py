@@ -19,11 +19,12 @@ No auth is required — the frontend calls it with an optional bearer token in
 the future, but a listener without an account must still work.
 """
 
-import os
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 
 from app.utils.logger import logger
 
@@ -34,12 +35,9 @@ from app.schemas.voice import UnifiedVoiceResponse, ModelResult
 from app.schemas.prediction import CropOutput, DiseaseOutput, WeedPestOutput
 from app.validation import validate_image_upload, validate_audio_upload
 from app.rate_limiter import limiter
-from app.config import VOICE_RATE_PER_MINUTE
+from app.config import VOICE_RATE_PER_MINUTE, TEMP_UPLOAD_DIR
 
 router = APIRouter(prefix="/voice", tags=["Voice Assistant"])
-
-TEMP_UPLOAD_DIR = "app/temp_uploads"
-os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
 
 
 @router.post(
@@ -93,7 +91,7 @@ async def voice_query(
     try:
         if audio is not None:
             audio_bytes = await validate_audio_upload(audio)
-            temp_audio_path = os.path.join(TEMP_UPLOAD_DIR, f"{uuid.uuid4().hex}.audio")
+            temp_audio_path = TEMP_UPLOAD_DIR / f"{uuid.uuid4().hex}.audio"
             with open(temp_audio_path, "wb") as f:
                 f.write(audio_bytes)
 
@@ -113,15 +111,19 @@ async def voice_query(
         raise HTTPException(status_code=400, detail=str(exc))
 
     finally:
-        if temp_audio_path and os.path.exists(temp_audio_path):
-            os.remove(temp_audio_path)
+        if temp_audio_path is not None:
+            temp_audio_path.unlink(missing_ok=True)
 
     # ---- Step 6: speak the summary (gTTS in the response language) ----
     audio_url = None
     audio_relative = None
     try:
-        audio_path = voice_service.synthesize(out["summary"], language=out["summary_language"])
-        audio_relative = f"/static/voice_responses/{os.path.basename(audio_path)}"
+        # gTTS does blocking socket I/O; run it off the event loop so one slow
+        # synthesis can't stall every other request on the single worker.
+        audio_path = await run_in_threadpool(
+            voice_service.synthesize, out["summary"], language=out["summary_language"]
+        )
+        audio_relative = f"/static/voice_responses/{Path(audio_path).name}"
         audio_url = str(request.base_url).rstrip("/") + audio_relative
     except Exception as exc:  # response is still fully usable without audio
         logger.error(f"gTTS synthesis failed: {exc}")

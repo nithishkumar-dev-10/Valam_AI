@@ -18,6 +18,7 @@ location-based soil data source or Soil Health Card data.
 """
 
 import logging
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -43,12 +44,17 @@ def _level(value: float) -> str:
     return "high"
 
 
+@lru_cache(maxsize=1)
 def _training_values() -> dict:
     """
     Get representative values from the existing crop dataset.
 
     These values are used only as a prototype fallback when
     neither district nor state-specific soil information is available.
+
+    The input CSV is a static asset, so the parsed result is cached
+    (this used to re-read the file on EVERY request — a major cost under
+    load, since it runs on the crop-recommendation hot path).
     """
 
     df = pd.read_csv(TRAINING_DATA_PATH)
@@ -71,10 +77,11 @@ def _training_values() -> dict:
     }
 
 
+@lru_cache(maxsize=1)
 def _training_quantiles() -> dict:
     """
     Representative low / medium / high N/P/K values
-    from the training dataset.
+    from the training dataset. Cached (see _training_values docstring).
     """
 
     df = pd.read_csv(TRAINING_DATA_PATH)
@@ -177,6 +184,22 @@ def _canonical_district(district: str) -> str:
     return " ".join(district.strip().split())
 
 
+@lru_cache(maxsize=1)
+def _district_table() -> pd.DataFrame | None:
+    """Load the district-nutrient index once (static asset). None if absent."""
+    if not DISTRICT_INDEX_PATH.exists():
+        return None
+    return pd.read_csv(DISTRICT_INDEX_PATH)
+
+
+@lru_cache(maxsize=1)
+def _state_table() -> pd.DataFrame | None:
+    """Load the state-nutrient index once (static asset). None if absent."""
+    if not INDEX_PATH.exists():
+        return None
+    return pd.read_csv(INDEX_PATH)
+
+
 def _district_lookup(state: str, district: str) -> dict | None:
     """
     Try to resolve soil values from the district-level index.
@@ -189,10 +212,9 @@ def _district_lookup(state: str, district: str) -> dict | None:
     if not district or not district.strip():
         return None
 
-    if not DISTRICT_INDEX_PATH.exists():
+    table = _district_table()
+    if table is None:
         return None
-
-    table = pd.read_csv(DISTRICT_INDEX_PATH)
 
     required_columns = {"district", "state", "N_index", "P_index", "K_index"}
 
@@ -274,7 +296,9 @@ def _state_lookup(state: str) -> dict | None:
     if not INDEX_PATH.exists():
         return None
 
-    table = pd.read_csv(INDEX_PATH)
+    table = _state_table()
+    if table is None:
+        return None
 
     required_columns = {"state", "N_index", "P_index", "K_index"}
 

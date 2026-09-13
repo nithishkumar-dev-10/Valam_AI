@@ -16,6 +16,8 @@ schema (and turns into spoken audio). No TTS here — the router owns audio URLs
 import re
 from typing import Optional
 
+from starlette.concurrency import run_in_threadpool
+
 from app.utils.logger import logger
 
 from app.services.dl.intent_parser import parse_intent
@@ -306,7 +308,10 @@ async def run_pipeline(
     detected_language = lang_override or "en"
     language_probability = None
     if audio_path and transcribe_fn is not None:
-        stt = transcribe_fn(audio_path, language=lang_override)
+        # Whisper transcription is a long, CPU-bound torch call that releases
+        # the GIL; run it on a worker thread so the single event loop keeps
+        # serving health checks and other requests meanwhile.
+        stt = await run_in_threadpool(transcribe_fn, audio_path, language=lang_override)
         transcribed_text = (stt.get("text") or "").strip()
         detected_language = stt.get("language") or detected_language
         language_probability = stt.get("language_probability")

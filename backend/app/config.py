@@ -17,6 +17,11 @@ DEEP_WEED_CLASSES_PATH = ML_MODELS_DIR / "deepweeds_classes.json"
 STATIC_DIR = BASE_DIR / "app" / "static"
 VOICE_AUDIO_OUTPUT_DIR = STATIC_DIR / "voice_responses"
 VOICE_AUDIO_RETENTION_DAYS = int(os.getenv("VOICE_AUDIO_RETENTION_DAYS", "30"))
+TEMP_UPLOAD_DIR = BASE_DIR / "app" / "temp_uploads"
+# Decompression-bomb guard: reject images larger than this many pixels BEFORE
+# any decode, so a tiny 15 MB file can't balloon into gigabytes of RAM. PIL's
+# own default is 16M; a phone camera photo is ~12MP (12M). 16M is a sane cap.
+MAX_IMAGE_PIXELS = int(os.getenv("MAX_IMAGE_PIXELS", "16000000"))
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "backend.log"
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "tiny")  # was "base"
@@ -79,9 +84,14 @@ def validate_config():
     """Fail loudly at startup when required env vars are missing. Never run
     insecurely with a silent placeholder secret."""
     missing = [f"  {var} — {hint}" for var, hint in REQUIRED_ENV_VARS.items() if not os.getenv(var)]
+    if SECRET_KEY is not None and len(SECRET_KEY) < 32:
+        missing.append(
+            "  SECRET_KEY — too short (must be ≥ 32 chars). Generate with: "
+            'python -c "import secrets; print(secrets.token_urlsafe(64))"'
+        )
     if missing:
         raise RuntimeError(
-            "FATAL: required environment variables are not set. "
+            "FATAL: required environment variables are not set securely. "
             "Add them to backend/.env (see .env.example).\n" + "\n".join(missing)
         )
 

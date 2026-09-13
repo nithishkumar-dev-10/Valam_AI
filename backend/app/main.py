@@ -5,6 +5,7 @@
 import os
 import logging
 import time
+import asyncio
 from contextlib import asynccontextmanager
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -26,7 +27,14 @@ import sqlalchemy
 from app.database import Base, engine
 from app.models import farmer  # noqa: F401 -- registers the model before create_all
 from app.routers import crop, disease, deep_weed, voice, auth, pest, admin
-from app.config import STATIC_DIR, VOICE_AUDIO_OUTPUT_DIR, VOICE_AUDIO_RETENTION_DAYS, CORS_ORIGINS, ADMIN_ACCESS_KEY
+from app.config import (
+    STATIC_DIR,
+    VOICE_AUDIO_OUTPUT_DIR,
+    VOICE_AUDIO_RETENTION_DAYS,
+    TEMP_UPLOAD_DIR,
+    CORS_ORIGINS,
+    ADMIN_ACCESS_KEY,
+)
 from app.rate_limiter import limiter
 from app.middleware import AccessLogMiddleware
 
@@ -37,21 +45,58 @@ logger = logging.getLogger("valam_ai.main")
 Base.metadata.create_all(bind=engine)
 
 os.makedirs(VOICE_AUDIO_OUTPUT_DIR, exist_ok=True)
+os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
+
+_RETENTION_SECONDS = VOICE_AUDIO_RETENTION_DAYS * 86400
+
+
+def _purge_voice_audio() -> None:
+    """Delete TTS preview clips older than the retention window. Logs a summary
+    line and never fails startup — retention is best-effort, not critical."""
+    now = time.time()
+    removed = 0
+    for path in VOICE_AUDIO_OUTPUT_DIR.glob("*.mp3"):
+        try:
+            if now - path.stat().st_mtime > _RETENTION_SECONDS:
+                path.unlink(missing_ok=True)
+                removed += 1
+        except OSError:
+            pass
+    if removed:
+        logger.info("Retention: purged %d expired TTS clips (older than %d days)", removed, VOICE_AUDIO_RETENTION_DAYS)
+
+
+def _purge_temp_uploads() -> None:
+    """Request-scoped audio temp files are deleted in a finally block on every
+    request; anything left in temp_uploads at startup is an orphan (crash,
+    SIGKILL) and must not persist — it can contain farmer voice recordings."""
+    for path in TEMP_UPLOAD_DIR.glob("*"):
+        try:
+            if path.is_file():
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup cleanup: purge TTS preview clips older than the retention
-    window (VOICE_AUDIO_RETENTION_DAYS). Voice summaries are user-derived
-    data, so they are never kept indefinitely — see docs/PRIVACY_POLICY.md."""
-    retention_seconds = VOICE_AUDIO_RETENTION_DAYS * 86400
-    for path in VOICE_AUDIO_OUTPUT_DIR.glob("*.mp3"):
-        try:
-            if time.time() - path.stat().st_mtime > retention_seconds:
-                path.unlink(missing_ok=True)
-        except OSError:
-            pass
-    yield
+    """Startup: purge stale TTS clips + any orphaned temp uploads (both are
+    user-derived data that must never linger), then run a background retention
+    sweep every 6h so cleanup happens continuously, not only on restart."""
+    logger.info("CORS_ORIGINS=%s", ",".join(CORS_ORIGINS) or "(none)")
+    _purge_temp_uploads()
+    _purge_voice_audio()
+
+    async def _retention_loop():
+        while True:
+            await asyncio.sleep(6 * 3600)
+            _purge_voice_audio()
+
+    task = asyncio.create_task(_retention_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
 
 API_DESCRIPTION = """
 Valam AI is a voice-first agri assistant for Indian farmers. A farmer sends a

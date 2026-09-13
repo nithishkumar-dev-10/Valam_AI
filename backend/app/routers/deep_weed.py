@@ -1,4 +1,5 @@
 from fastapi import APIRouter, File, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from app.schemas.prediction import WeedPestOutput
 from app.services.dl.deep_weed_service import deep_weed_service
@@ -22,5 +23,5 @@ router = APIRouter(prefix="/predict", tags=["deep-weed"])
 )
 async def predict_deep_weed(file: UploadFile = File(...)):
     image_bytes = await validate_image_upload(file)
-    class_name, confidence = deep_weed_service.predict(image_bytes)
+    class_name, confidence = await run_in_threadpool(deep_weed_service.predict, image_bytes)
     return WeedPestOutput(predicted_class=class_name, confidence=confidence)
