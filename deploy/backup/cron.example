@@ -1,0 +1,7 @@
+# valam-backup cron — install with:  sudo crontab -e
+# Runs daily at 03:17 (VM local time). Off-peak for Indian farmers (03:17 IST
+# is 21:47 UTC the previous day for UTC VMs — adjust to your VM's timezone).
+#
+# Min might be useful: 17 3 * * *  daily
+# Hourly if you're paranoid about a 24h window:  */6 * * * *
+17 3 * * * /usr/local/bin/valam-backup.sh >> /var/log/valam-backup.log 2>&1

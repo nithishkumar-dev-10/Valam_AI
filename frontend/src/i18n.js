@@ -86,6 +86,39 @@ const STRINGS = {
     en: 'Both a crop and a leaf were provided, so we checked both.',
     ta: 'பயிர் மற்றும் இலை இரண்டும் கொடுக்கப்பட்டதால், இரண்டையும் ஆய்வு செய்தோம்.',
   },
+
+  signIn: { en: 'Sign in', ta: 'உள்நுழை' },
+  signUp: { en: 'Sign up', ta: 'பதிவு செய்' },
+  signOut: { en: 'Sign out', ta: 'வெளியேறு' },
+  loginTitle: { en: 'Welcome back', ta: 'மீண்டும் வரவேற்கிறோம்' },
+  signupTitle: { en: 'Create your account', ta: 'உங்கள் கணக்கை உருவாக்குங்கள்' },
+  authHint: {
+    en: 'Sign in is optional — the assistant works without an account.',
+    ta: 'உள்நுழைவு விருப்பம் — உதவியாளர் கணக்கு இல்லாமலும் வேலை செய்கிறது.',
+  },
+  name: { en: 'Your name', ta: 'உங்கள் பெயர்' },
+  phone: { en: 'Phone number', ta: 'தொலைபேசி எண்' },
+  password: { en: 'Password', ta: 'கடவுச்சொல்' },
+  confirmPassword: { en: 'Confirm password', ta: 'கடவுச்சொல்லை உறுதிப்படுத்தவும்' },
+  nameRequired: { en: 'Please enter your name.', ta: 'உங்கள் பெயரை உள்ளிடவும்.' },
+  phoneRequired: { en: 'Phone number is required.', ta: 'தொலைபேசி எண் தேவை.' },
+  phoneInvalid: {
+    en: 'Enter a valid 10–15 digit phone number.',
+    ta: 'சரியான 10–15 இலக்க தொலைபேசி எண்ணை உள்ளிடவும்.',
+  },
+  pwdRequired: { en: 'Password is required.', ta: 'கடவுச்சொல் தேவை.' },
+  pwdMin: { en: 'At least 6 characters.', ta: 'குறைந்தது 6 எழுத்துகள்.' },
+  pwdMismatch: { en: 'Passwords do not match.', ta: 'கடவுச்சொற்கள் பொருந்தவில்லை.' },
+  authInvalid: {
+    en: 'Incorrect phone number or password.',
+    ta: 'தொலைபேசி எண் அல்லது கடவுச்சொல் தவறானது.',
+  },
+  authGenericError: {
+    en: 'Something went wrong. Please try again.',
+    ta: 'ஏதோ தவறு நடந்தது. மீண்டும் முயற்சிக்கவும்.',
+  },
+  noAccount: { en: 'No account yet?', ta: 'இன்னும் கணக்கு இல்லையா?' },
+  haveAccount: { en: 'Already have an account?', ta: 'ஏற்கனவே கணக்கு உள்ளதா?' },
 }
 
 // "auto" resolves to English for rendered UI copy; the backend detects the

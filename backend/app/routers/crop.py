@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from app.utils.logger import logger
 
 from app.schemas.simple_crop_schema import SimpleCropInput
 from app.schemas.prediction import CropOutput
@@ -68,7 +69,23 @@ async def _predict_from_features(features: dict, location: str) -> CropOutput:
     )
 
 
-@router.post("/crop-simple", response_model=CropOutput)
+@router.post(
+    "/crop-simple",
+    response_model=CropOutput,
+    summary="Recommend a crop from GPS",
+    description=(
+        "Recommends a crop for a farm given only GPS coordinates. The backend looks up the "
+        "district/state, regional soil nutrient values, current weather + annual rainfall "
+        "(OpenWeather + NASA POWER), and predicts the best crop.\n\n"
+        "Latitude must be within India (6.0–37.5), longitude within 68.0–97.5. "
+        "No auth required."
+    ),
+    responses={
+        400: {"description": "Could not determine the state from those coordinates"},
+        422: {"description": "Coordinates out of range or malformed"},
+        500: {"description": "Geocoding/weather lookup failed (generic body; detail logged server-side)"},
+    },
+)
 async def predict_crop_simple(payload: SimpleCropInput):
 
     try:
@@ -177,13 +194,27 @@ async def predict_crop_simple(payload: SimpleCropInput):
         raise
 
     except Exception as exc:
+        logger.exception("crop-simple failed: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail=f"Crop recommendation failed: {str(exc)}",
+            detail="Crop recommendation failed. Please try again.",
         )
 
 
-@router.post("/crop-manual", response_model=CropOutput)
+@router.post(
+    "/crop-manual",
+    response_model=CropOutput,
+    summary="Recommend a crop from measured soil values",
+    description=(
+        "Like `/crop-simple` but you supply measured N/P/K/pH/temperature/humidity/rainfall "
+        "directly (e.g. Soil Health Card values). Bypasses geocoding and soil lookup. "
+        "`input_confidence` is reported `high`."
+    ),
+    responses={
+        422: {"description": "Values out of range (e.g. rainfall < 0, humidity > 100)"},
+        500: {"description": "Prediction failed (generic body; detail logged server-side)"},
+    },
+)
 async def predict_crop_manual(payload: ManualCropInput):
     """
     Manual override: supply exact N/P/K/temperature/humidity/ph/rainfall,
@@ -211,7 +242,8 @@ async def predict_crop_manual(payload: ManualCropInput):
             location="manual input",
         )
     except Exception as exc:
+        logger.exception("crop-manual failed: %s", exc)
         raise HTTPException(
             status_code=500,
-            detail=f"Crop recommendation failed: {str(exc)}",
+            detail="Crop recommendation failed. Please try again.",
         )
