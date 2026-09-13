@@ -1,9 +1,21 @@
-# Frontend (Vite/React) — sibling of backend/, kept out of the repo.
+# Frontend (Vite/React) build + deps.
 frontend/node_modules/
 frontend/dist/
 
 # Machine-local frontend env overrides (real .env is committed with the
 # harmless localhost default; copy .env.example and set VITE_API_BASE_URL).
 frontend/.env.local
-frontend/.env.*.localapp/temp_uploads/
+frontend/.env.*.local
+
+# Backend runtime artifacts — never commit these.
+backend/.env
+backend/valam.db
+backend/valam.db-wal
+backend/valam.db-shm
+backend/logs/
+backend/app/temp_uploads/
+backend/app/static/voice_responses/*.mp3
+backend/app/static/voice_responses/*.wav
+
+# MacOS noise
 .DS_Store

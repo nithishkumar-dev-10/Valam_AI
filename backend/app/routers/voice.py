@@ -20,7 +20,6 @@ the future, but a listener without an account must still work.
 """
 
 import os
-import shutil
 import uuid
 from typing import Optional
 
@@ -33,6 +32,9 @@ from app.services.dl.pipeline import run_pipeline, PipelineInputError
 
 from app.schemas.voice import UnifiedVoiceResponse, ModelResult
 from app.schemas.prediction import CropOutput, DiseaseOutput, WeedPestOutput
+from app.validation import validate_image_upload, validate_audio_upload
+from app.rate_limiter import limiter
+from app.config import VOICE_RATE_PER_MINUTE
 
 router = APIRouter(prefix="/voice", tags=["Voice Assistant"])
 
@@ -40,7 +42,28 @@ TEMP_UPLOAD_DIR = "app/temp_uploads"
 os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
 
 
-@router.post("/query", response_model=UnifiedVoiceResponse)
+@router.post(
+    "/query",
+    response_model=UnifiedVoiceResponse,
+    summary="Multimodal voice query",
+    description=(
+        "The main feature. Send **one or more** of:\n"
+        "- `audio` — spoken question in Tamil/English (MP3/WAV/OGG/WebM/FLAC, max 15 MB)\n"
+        "- `image` — field photo showing disease, weed, or crop\n"
+        "- `latitude` / `longitude` — GPS coordinates for crop recommendation\n\n"
+        "The pipeline transcribes → detects language/intent → runs the relevant model(s) → "
+        "returns a natural-language summary + a playable TTS audio URL.\n\n"
+        "**No auth required.** Rate-limited to 10 queries per IP per minute."
+    ),
+    responses={
+        400: {"description": "No inputs provided, or invalid lang parameter"},
+        413: {"description": "Upload too large (image > 15 MB or audio > 15 MB)"},
+        415: {"description": "Unsupported file type (wrong magic bytes or unknown audio format)"},
+        429: {"description": "Too many queries from this IP (10/minute)"},
+        422: {"description": "Invalid form values"},
+    },
+)
+@limiter.limit(VOICE_RATE_PER_MINUTE)
 async def voice_query(
     request: Request,
     audio: Optional[UploadFile] = File(None),
@@ -69,12 +92,13 @@ async def voice_query(
 
     try:
         if audio is not None:
-            temp_audio_path = os.path.join(TEMP_UPLOAD_DIR, f"{uuid.uuid4().hex}_{audio.filename}")
+            audio_bytes = await validate_audio_upload(audio)
+            temp_audio_path = os.path.join(TEMP_UPLOAD_DIR, f"{uuid.uuid4().hex}.audio")
             with open(temp_audio_path, "wb") as f:
-                shutil.copyfileobj(audio.file, f)
+                f.write(audio_bytes)
 
         if image is not None:
-            image_bytes = await image.read()
+            image_bytes = await validate_image_upload(image)
 
         out = await run_pipeline(
             audio_path=temp_audio_path,

@@ -9,6 +9,7 @@ from torchvision import transforms
 
 from app.config import ML_MODELS_DIR
 from app.schemas.prediction import WeedPestOutput
+from app.validation import validate_image_upload
 
 router = APIRouter(prefix="/pest", tags=["pest"])
 
@@ -44,8 +45,21 @@ def _predict(image_bytes: bytes):
     return _pest_classes[idx], float(probs[idx])
 
 
-@router.post("/predict", response_model=WeedPestOutput)
+@router.post(
+    "/predict",
+    response_model=WeedPestOutput,
+    summary="Identify pest type",
+    description=(
+        "Classifies a photo of a pest into one of 9 classes (ONNX model, CPU). "
+        "Returns predicted label + softmax confidence."
+    ),
+    responses={
+        413: {"description": "Image exceeds 15 MB"},
+        415: {"description": "File is not a valid JPEG/PNG/WebP"},
+        422: {"description": "Invalid input"},
+    },
+)
 async def predict_pest(file: UploadFile = File(...)):
-    image_bytes = await file.read()
+    image_bytes = await validate_image_upload(file)
     class_name, confidence = _predict(image_bytes)
     return WeedPestOutput(predicted_class=class_name, confidence=confidence)
