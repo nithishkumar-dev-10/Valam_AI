@@ -1,0 +1,145 @@
+"""
+app/routers/voice.py
+
+Unified multimodal pipeline exposed as one endpoint (backend Part 2):
+
+    optional audio + optional photo + optional GPS + optional lang override
+        -> ASR (auto-detect unless overridden)
+        -> offline intent parsing
+        -> branching (see app/services/dl/pipeline.py)
+        -> raw model results
+        -> short natural-language summary in the response language
+        -> gTTS audio (returned as an absolute /static URL the browser can play)
+
+Contract (exactly what the React frontend's src/api.js sends/expects):
+    POST /voice/query   multipart: audio(opt), image(opt), latitude(opt),
+                                      longitude(opt), lang(opt: "ta"|"en")
+    responses: { text_response, results:[{model, ...}], audio_url, ... }
+No auth is required — the frontend calls it with an optional bearer token in
+the future, but a listener without an account must still work.
+"""
+
+import os
+import shutil
+import uuid
+from typing import Optional
+
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
+
+from app.utils.logger import logger
+
+from app.services.dl.voice_service import voice_service
+from app.services.dl.pipeline import run_pipeline, PipelineInputError
+
+from app.schemas.voice import UnifiedVoiceResponse, ModelResult
+from app.schemas.prediction import CropOutput, DiseaseOutput, WeedPestOutput
+
+router = APIRouter(prefix="/voice", tags=["Voice Assistant"])
+
+TEMP_UPLOAD_DIR = "app/temp_uploads"
+os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
+
+
+@router.post("/query", response_model=UnifiedVoiceResponse)
+async def voice_query(
+    request: Request,
+    audio: Optional[UploadFile] = File(None),
+    image: Optional[UploadFile] = File(None),
+    latitude: Optional[float] = Form(None),
+    longitude: Optional[float] = Form(None),
+    lang: Optional[str] = Form(None),
+):
+    """
+    Runs the full pipeline. Returns a UnifiedVoiceResponse whose `text_response`
+    is the summary, `results` is one entry per model that actually ran (each
+    with the CROP_FIELDS shape the frontend renders), and `audio_url` is a
+    playable gTTS rendering of the summary.
+    """
+    if audio is None and image is None and latitude is None and longitude is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide at least one input: a voice note, a photo, or GPS location.",
+        )
+
+    if lang is not None and lang not in ("ta", "en"):
+        raise HTTPException(status_code=400, detail="lang must be 'ta' or 'en' (or omitted for auto).")
+
+    temp_audio_path = None
+    image_bytes = None
+
+    try:
+        if audio is not None:
+            temp_audio_path = os.path.join(TEMP_UPLOAD_DIR, f"{uuid.uuid4().hex}_{audio.filename}")
+            with open(temp_audio_path, "wb") as f:
+                shutil.copyfileobj(audio.file, f)
+
+        if image is not None:
+            image_bytes = await image.read()
+
+        out = await run_pipeline(
+            audio_path=temp_audio_path,
+            image_bytes=image_bytes,
+            latitude=latitude,
+            longitude=longitude,
+            lang_override=lang,
+            transcribe_fn=voice_service.transcribe,
+        )
+
+    except PipelineInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    finally:
+        if temp_audio_path and os.path.exists(temp_audio_path):
+            os.remove(temp_audio_path)
+
+    # ---- Step 6: speak the summary (gTTS in the response language) ----
+    audio_url = None
+    audio_relative = None
+    try:
+        audio_path = voice_service.synthesize(out["summary"], language=out["summary_language"])
+        audio_relative = f"/static/voice_responses/{os.path.basename(audio_path)}"
+        audio_url = str(request.base_url).rstrip("/") + audio_relative
+    except Exception as exc:  # response is still fully usable without audio
+        logger.error(f"gTTS synthesis failed: {exc}")
+
+    crop = out["crop_result"]
+    disease = out["disease_result"]
+    pest = out["pest_result"]
+
+    return UnifiedVoiceResponse(
+        intent=out["intent"],
+        transcribed_text=out["transcribed_text"],
+        detected_language=out["detected_language"],
+        language_probability=out["language_probability"],
+        text_response=out["summary"],
+        response_text=out["summary"],
+        audio_url=audio_url,
+        audio_response_path=audio_relative,
+        results=[ModelResult(**r) for r in out["results"]],
+        crop_result=(
+            CropOutput(
+                predicted_crop=crop["predicted_crop"],
+                confidence=crop["confidence"],
+                confidence_label=crop["confidence_label"],
+                soil_source=crop["soil_source"],
+                weather_source=crop["weather_source"],
+                location=crop["location"],
+                warning=crop["warning"],
+                data_resolution=crop["data_resolution"],
+                input_confidence=crop["input_confidence"],
+                data_quality_note=crop["data_quality_note"],
+            )
+            if crop
+            else None
+        ),
+        disease_result=(
+            DiseaseOutput(predicted_class=disease["predicted_class"], confidence=disease["confidence"])
+            if disease
+            else None
+        ),
+        pest_result=(
+            WeedPestOutput(predicted_class=pest["predicted_class"], confidence=pest["confidence"])
+            if pest
+            else None
+        ),
+    )
