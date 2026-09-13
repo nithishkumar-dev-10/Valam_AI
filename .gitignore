@@ -6,3 +6,4 @@ frontend/dist/
 # harmless localhost default; copy .env.example and set VITE_API_BASE_URL).
 frontend/.env.local
 frontend/.env.*.localapp/temp_uploads/
+.DS_Store
