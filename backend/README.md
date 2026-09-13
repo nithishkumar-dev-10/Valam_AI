@@ -40,7 +40,25 @@ Response: `text_response` (natural-language summary in the reply language),
 `data_resolution`, `data_quality_note`), `audio_url` (absolutely-addressable
 gTTS MP3 under `/static/voice_responses/`), plus typed
 `crop_result` / `disease_result` / `pest_result` siblings (null if not run).
-No auth is required.
+No auth is required — the assistant stays zero-friction for farmers.
+
+## Optional Auth (phone + password, JWT)
+
+Kept optional on purpose: nothing besides `/auth/me` is gated, so farmers can
+use the assistant without an account. Only when sign-up/login is used:
+
+| Endpoint        | Body                            | Returns                               |
+|-----------------|---------------------------------|---------------------------------------|
+| `POST /auth/signup` | JSON `{ name, phone_number, password }` | `FarmerOut` (201; no hash/password) |
+| `POST /auth/login`  | form-encoded `username` (phone) + `password` | `{ access_token, token_type }` |
+| `GET /auth/me`      | `Authorization: Bearer <jwt>`   | `FarmerOut` (protected via `get_current_farmer`) |
+
+- Passwords are bcrypt-hashed (passlib); never stored or returned in plaintext.
+- Tokens are JWT (`sub` = farmer id, `exp` from `ACCESS_TOKEN_EXPIRE_MINUTES`).
+- `app/auth/jwt_handler.py::get_current_farmer` protects any future route by
+  dropping `farmer = Depends(get_current_farmer)` into its signature.
+- To add OTP later, the model already keys on `phone_number` — an SMS gateway
+  + OTP field would slot in without changing the table.
 
 ## Models
 
