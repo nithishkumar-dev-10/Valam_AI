@@ -1,3 +1,7 @@
+# Python bytecode — never track.
+__pycache__/
+*.pyc
+
 # Frontend (Vite/React) build + deps.
 frontend/node_modules/
 frontend/dist/

@@ -5,13 +5,14 @@ import numpy as np
 import onnxruntime as ort
 from fastapi import APIRouter, File, UploadFile
 from PIL import Image
+from starlette.concurrency import run_in_threadpool
 from torchvision import transforms
 
 from app.config import ML_MODELS_DIR
 from app.schemas.prediction import WeedPestOutput
 from app.validation import validate_image_upload
 
-router = APIRouter(prefix="/pest", tags=["pest"])
+router = APIRouter(prefix="/predict", tags=["pest"])
 
 # The ONNX session is a module-level singleton: it loads once at import time,
 # not on every request. Must match train_pest_model.py exactly.
@@ -46,7 +47,7 @@ def _predict(image_bytes: bytes):
 
 
 @router.post(
-    "/predict",
+    "/pest",
     response_model=WeedPestOutput,
     summary="Identify pest type",
     description=(
@@ -61,5 +62,7 @@ def _predict(image_bytes: bytes):
 )
 async def predict_pest(file: UploadFile = File(...)):
     image_bytes = await validate_image_upload(file)
-    class_name, confidence = _predict(image_bytes)
+    # ONNX inference is CPU-bound; offload it so the single event loop keeps
+    # serving (health checks, other users) during it.
+    class_name, confidence = await run_in_threadpool(_predict, image_bytes)
     return WeedPestOutput(predicted_class=class_name, confidence=confidence)

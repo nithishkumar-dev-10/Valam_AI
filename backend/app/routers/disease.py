@@ -1,4 +1,5 @@
 from fastapi import APIRouter, File, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from app.schemas.prediction import DiseaseOutput
 from app.services.dl.disease_service import disease_service
@@ -23,5 +24,7 @@ router = APIRouter(prefix="/predict", tags=["disease"])
 )
 async def predict_disease(file: UploadFile = File(...)):
     image_bytes = await validate_image_upload(file)
-    class_name, confidence = disease_service.predict(image_bytes)
+    # CNN inference is CPU-bound torch that releases the GIL; offload it so the
+    # single event loop keeps serving (health checks, other users) during it.
+    class_name, confidence = await run_in_threadpool(disease_service.predict, image_bytes)
     return DiseaseOutput(predicted_class=class_name, confidence=confidence)
