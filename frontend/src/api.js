@@ -171,7 +171,7 @@ async function realSubmitCheck(input) {
   if (input.location?.lat != null) fd.append('latitude', String(input.location.lat))
   if (input.location?.lon != null) fd.append('longitude', String(input.location.lon))
 
-  const res = await fetch(`${API_BASE}/voice/query`, {
+  const res = await fetch(`${API_V1}/voice/query`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: fd,
@@ -196,6 +196,94 @@ async function realSubmitCheck(input) {
     models_ran: models,
     audio: data.audio_url || data.tamil_audio_path ? { url: data.audio_url || data.tamil_audio_path } : null,
   }
+}
+
+// ---------------------------------------------------------------------------
+// AUTH ----------------------------------------------------------------------
+// Signup/login against the backend. The core feature stays OPEN — these
+// calls exist so a farmer CAN log in (profile, future saved checks) without
+// ever being forced to. The JWT is stored in localStorage by auth.jsx under
+// the key `valam_token` and attached to requests when present (see
+// realSubmitCheck above). LocalStorage trade-off: survives refreshes, but is
+// readable by any XSS — acceptable for this student project.
+// ---------------------------------------------------------------------------
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+
+const normalizePhone = (raw) => String(raw || '').replace(/[\s-]/g, '')
+
+// Versioned API contract: mobile clients pin to /api/v1 so future breaking
+// changes ship as /api/v2 without breaking installed Play Store apps.
+const API_V1 = `${API_BASE}/api/v1`
+
+async function authFetch(path, options) {
+  const res = await fetch(`${API_V1}${path}`, options)
+  const text = await res.text()
+  let data = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    data = { detail: text.slice(0, 200) }
+  }
+  if (!res.ok) {
+    const detail = data?.detail
+    let message
+    if (typeof detail === 'string') message = detail
+    else if (Array.isArray(detail)) message = detail.map((d) => d.msg).join('; ')
+    else message = `Backend error ${res.status}`
+    const err = new Error(message || `Backend error ${res.status}`)
+    err.status = res.status
+    throw err
+  }
+  return data
+}
+
+export async function authSignup({ name, phone_number, password }) {
+  if (USE_MOCK) {
+    await wait(400)
+    return { id: 999, name, phone_number, created_at: new Date().toISOString() }
+  }
+  return authFetch('/auth/signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, phone_number: normalizePhone(phone_number), password }),
+  })
+}
+
+export async function authLogin({ phone_number, password }) {
+  if (USE_MOCK) {
+    await wait(400)
+    return { access_token: 'mock.jwt.disabled', refresh_token: 'mock.refresh.disabled', token_type: 'bearer' }
+  }
+  // Backend uses OAuth2PasswordRequestForm (form-encoded "username" field
+  // carries the phone number, exactly like Swagger's Authorize button).
+  return authFetch('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ username: normalizePhone(phone_number), password }),
+  })
+}
+
+export async function authRefresh(refreshToken) {
+  if (USE_MOCK) {
+    await wait(300)
+    return { access_token: 'mock.jwt.refreshed', refresh_token: refreshToken, token_type: 'bearer' }
+  }
+  return authFetch('/auth/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  })
+}
+
+export async function authMe(token) {
+  if (USE_MOCK) {
+    await wait(300)
+    return { id: 999, name: 'Demo Farmer', phone_number: '9345000000', created_at: new Date().toISOString() }
+  }
+  return authFetch('/auth/me', {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
 }
 
 // ---------------------------------------------------------------------------

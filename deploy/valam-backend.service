@@ -1,0 +1,46 @@
+# /etc/systemd/system/valam-backend.service
+# Install:  sudo cp deploy/valam-backend.service /etc/systemd/system/
+#           sudo systemctl daemon-reload
+#           sudo systemctl enable --now valam-backend
+#
+# Single uvicorn worker ON PURPOSE (see deploy/README.md):
+#   * SQLite is a single-writer DB (WAL handles concurrent readers fine)
+#   * slowapi rate-limit counters live in-memory per process
+# When you outgrow SQLite (multi-worker/replicas) switch to PostgreSQL and
+# this file to uvicorn --workers N + a Redis-backed limiter.
+
+[Unit]
+Description=Valam AI backend (FastAPI / uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=valamuser
+Group=valamuser
+WorkingDirectory=/opt/valam/backend
+# ML libs spawn a scary number of OpenMP threads on 24GB boxes; pin them.
+Environment=KMP_DUPLICATE_LIB_OK=TRUE
+Environment=OMP_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=NUMEXPR_NUM_THREADS=1
+Environment=PATH=/opt/valam/backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# config.py reads backend/.env from WorkingDirectory (load_dotenv) — place
+# .env at /opt/valam/backend/.env (never commit it).
+ExecStart=/opt/valam/backend/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
+# uvicorn behind nginx sees the real client IP via --proxy-headers
+# (X-Forwarded-For is set by nginx) so rate limiting keys on real IPs, not 127.0.0.1.
+# --forwarded-allow-ips 127.0.0.1 = only trust forwarding headers that nginx set.
+# ALLOW ONLY 22/80/443 in your Oracle Security List so nobody can reach :8000 direct.
+
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+
+# Hardening (compromise between "safe" and "whisper/ffmpeg need temp space")
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
