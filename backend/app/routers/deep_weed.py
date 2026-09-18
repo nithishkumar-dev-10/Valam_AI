@@ -1,9 +1,11 @@
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, Request, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from app.schemas.prediction import WeedPestOutput
 from app.services.dl.deep_weed_service import deep_weed_service
 from app.validation import validate_image_upload
+from app.config import PREDICT_RATE_PER_MINUTE
+from app.rate_limiter import limiter
 
 router = APIRouter(prefix="/predict", tags=["deep-weed"])
 
@@ -19,9 +21,11 @@ router = APIRouter(prefix="/predict", tags=["deep-weed"])
         413: {"description": "Image exceeds 15 MB"},
         415: {"description": "File is not a valid JPEG/PNG/WebP"},
         422: {"description": "Invalid input"},
+        429: {"description": "Too many requests from this IP (25/minute)"},
     },
 )
-async def predict_deep_weed(file: UploadFile = File(...)):
+@limiter.limit(PREDICT_RATE_PER_MINUTE)
+async def predict_deep_weed(request: Request, file: UploadFile = File(...)):
     image_bytes = await validate_image_upload(file)
     class_name, confidence = await run_in_threadpool(deep_weed_service.predict, image_bytes)
     return WeedPestOutput(predicted_class=class_name, confidence=confidence)

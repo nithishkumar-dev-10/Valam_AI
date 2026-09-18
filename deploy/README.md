@@ -93,6 +93,9 @@ DATABASE_URL=
 ADMIN_ACCESS_KEY=<long random string for the /admin/logs endpoint>
 LOGIN_RATE_PER_MINUTE=5/minute
 VOICE_RATE_PER_MINUTE=10/minute
+PREDICT_RATE_PER_MINUTE=25/minute
+# Disables Swagger/docs in prod; also documented in app.main docs_url.
+ENVIRONMENT=production
 WHISPER_MODEL_SIZE=base
 DEFAULT_VOICE_LANGUAGE=ta
 EOF
@@ -142,8 +145,9 @@ sudo certbot renew --dry-run
 Public URLs afterwards:
 ```
 https://api.valam.in/api/v1/health
-https://api.valam.in/docs
 ```
+> `/docs` and `/redoc` are **intentionally disabled** in production
+> (`ENVIRONMENT=production`) — the Swagger surface is for local dev only.
 
 ---
 ## 8. Takeaways to test from OUTSIDE your network
@@ -183,7 +187,6 @@ sudo /usr/local/bin/valam-backup.sh        # first run / smoke test
   ```
 - **UptimeRobot** (free tier, 50 monitors, 5-min checks, email/Telegram
   alerts): monitor `https://api.valam.in/api/v1/health` expecting HTTP 200.
-  Add the /docs URL too since a broken app usually 502s both.
 
 ---
 ## 11. Updating the app

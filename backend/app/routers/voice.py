@@ -85,6 +85,20 @@ async def voice_query(
     if lang is not None and lang not in ("ta", "en"):
         raise HTTPException(status_code=400, detail="lang must be 'ta' or 'en' (or omitted for auto).")
 
+    # Same bounds the /predict/crop-simple endpoint enforces (India only):
+    # reject out-of-range coordinates here BEFORE the geocode/weather calls,
+    # so a bogus GPS value can't burn a free-tier reverse-geocode quota.
+    if latitude is not None and not (6.0 <= latitude <= 37.5):
+        raise HTTPException(
+            status_code=400,
+            detail="latitude must be between 6.0 and 37.5 (India).",
+        )
+    if longitude is not None and not (68.0 <= longitude <= 97.5):
+        raise HTTPException(
+            status_code=400,
+            detail="longitude must be between 68.0 and 97.5 (India).",
+        )
+
     temp_audio_path = None
     image_bytes = None
 

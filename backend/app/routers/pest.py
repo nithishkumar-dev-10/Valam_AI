@@ -3,14 +3,16 @@ import json
 
 import numpy as np
 import onnxruntime as ort
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
 from torchvision import transforms
 
-from app.config import ML_MODELS_DIR
+from app.config import ML_MODELS_DIR, PREDICT_RATE_PER_MINUTE
 from app.schemas.prediction import WeedPestOutput
+from app.utils.logger import logger
 from app.validation import validate_image_upload
+from app.rate_limiter import limiter
 
 router = APIRouter(prefix="/predict", tags=["pest"])
 
@@ -19,10 +21,23 @@ router = APIRouter(prefix="/predict", tags=["pest"])
 PEST_MODEL_PATH = ML_MODELS_DIR / "pest_model.onnx"
 PEST_CLASSES_PATH = ML_MODELS_DIR / "pest_classes.json"
 
-_session = ort.InferenceSession(str(PEST_MODEL_PATH), providers=["CPUExecutionProvider"])
+# ===========================================================================
+# Import-time model load, guarded: a missing/corrupt ONNX or classes file must
+# NOT take down the whole API at startup. The failure is logged once (with its
+# traceback); pest endpoints then return 503 instead of crashing the process.
+# ===========================================================================
+try:
+    _session = ort.InferenceSession(str(PEST_MODEL_PATH), providers=["CPUExecutionProvider"])
+except Exception:
+    logger.exception("Pest ONNX model failed to load at import time (%s)", PEST_MODEL_PATH)
+    _session = None
 
-with open(PEST_CLASSES_PATH) as f:
-    _pest_classes = json.load(f)
+try:
+    with open(PEST_CLASSES_PATH) as f:
+        _pest_classes = json.load(f)
+except Exception:
+    logger.exception("Pest class list failed to load at import time (%s)", PEST_CLASSES_PATH)
+    _pest_classes = None
 
 # same as training transform (no augmentation, plain 224x224 resize)
 _transform = transforms.Compose([
@@ -33,6 +48,19 @@ _transform = transforms.Compose([
 
 
 def _predict(image_bytes: bytes):
+    if _session is None:
+        logger.error("pest model is not loaded — refusing pest prediction")
+        raise HTTPException(
+            status_code=503,
+            detail="Pest model is currently unavailable. Please try again later.",
+        )
+    if _pest_classes is None:
+        logger.error("pest class list is not loaded — refusing pest prediction")
+        raise HTTPException(
+            status_code=503,
+            detail="Pest model is currently unavailable. Please try again later.",
+        )
+
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     tensor = _transform(img).unsqueeze(0).numpy()
 
@@ -58,9 +86,11 @@ def _predict(image_bytes: bytes):
         413: {"description": "Image exceeds 15 MB"},
         415: {"description": "File is not a valid JPEG/PNG/WebP"},
         422: {"description": "Invalid input"},
+        429: {"description": "Too many requests from this IP (25/minute)"},
     },
 )
-async def predict_pest(file: UploadFile = File(...)):
+@limiter.limit(PREDICT_RATE_PER_MINUTE)
+async def predict_pest(request: Request, file: UploadFile = File(...)):
     image_bytes = await validate_image_upload(file)
     # ONNX inference is CPU-bound; offload it so the single event loop keeps
     # serving (health checks, other users) during it.

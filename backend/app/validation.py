@@ -5,15 +5,60 @@ Central upload validators — called BEFORE anything touches ML inference.
 Returns validated bytes so callers can skip a redundant read.
 """
 
+import asyncio
 import io
 import logging
+import tempfile
 
 from fastapi import UploadFile, HTTPException
 from PIL import Image
 
-from app.config import MAX_IMAGE_UPLOAD_MB, MAX_AUDIO_UPLOAD_MB, MAX_IMAGE_PIXELS
+from app.config import (
+    MAX_IMAGE_UPLOAD_MB,
+    MAX_AUDIO_UPLOAD_MB,
+    MAX_IMAGE_PIXELS,
+    MAX_AUDIO_DURATION_SECONDS,
+)
 
 logger = logging.getLogger("valam_ai.validation")
+
+
+async def _probe_audio_duration(data: bytes) -> float | None:
+    """Return the media duration (seconds) via ffprobe, or None if ffprobe is
+    unavailable / can't read it. Fails OPEN: missing ffprobe must not block
+    uploads, it only means no duration cap.
+
+    ffprobe is given a real (seekable) file: probing a stdin pipe returns 'N/A'
+    for formats like WAV where duration isn't resolvable without seeking.
+    """
+    if not data:
+        return None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".audio", delete=True) as probe_file:
+            probe_file.write(data)
+            probe_file.flush()
+            proc = await asyncio.create_subprocess_exec(
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                "-i", probe_file.name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await proc.communicate()
+    except FileNotFoundError:
+        logger.warning("ffprobe not found — skipping audio duration cap")
+        return None
+    except Exception as exc:
+        logger.warning("ffprobe failed (%s) — skipping audio duration cap", exc)
+        return None
+
+    try:
+        duration = float(stdout.decode().strip())
+    except (ValueError, UnicodeDecodeError):
+        return None
+    return duration if duration >= 0 else None
 
 
 def _file_size(file: UploadFile) -> int:
@@ -105,6 +150,18 @@ async def validate_audio_upload(file: UploadFile) -> bytes:
         raise HTTPException(
             status_code=415,
             detail="File is not a recognized audio format (accepts MP3, WAV, WebM, OGG, FLAC, M4A).",
+        )
+
+    # Duration cap (ffprobe reads only the header — no decode, no Whisper run).
+    # Stops a long low-bitrate clip from forcing a multi-minute ASR decode.
+    duration = await _probe_audio_duration(data)
+    if duration is not None and duration > MAX_AUDIO_DURATION_SECONDS:
+        logger.info(
+            "Rejected audio %.1fs (> %ds cap)", duration, MAX_AUDIO_DURATION_SECONDS
+        )
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio is too long. Maximum duration is {MAX_AUDIO_DURATION_SECONDS} seconds.",
         )
 
     return data

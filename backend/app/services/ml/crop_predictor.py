@@ -2,6 +2,8 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
+from app.utils.logger import logger
+
 BASE_DIR = Path(__file__).resolve().parents[3]
 MODEL_PATH = BASE_DIR / "app" / "ml_models" / "crop_recommender.pkl"
 ENCODER_PATH = BASE_DIR / "app" / "ml_models" / "label_encoder.pkl"
@@ -44,4 +46,24 @@ class CropPredictor:
         return crop_name, round(confidence, 4)
 
 
-crop_predictor = CropPredictor()
+def _load_predictor():
+    """Import-time load, guarded: a missing/corrupt model must NOT take down
+    the whole API at startup (health, auth, and the other models keep working).
+    The failure is logged with its traceback here once, then surfacing as 503s
+    on the crop endpoints (see get_predictor)."""
+    try:
+        return CropPredictor()
+    except Exception:
+        logger.exception("Crop model failed to load at import time (%s)", MODEL_PATH)
+        return None
+
+
+crop_predictor = _load_predictor()
+
+
+def get_predictor() -> CropPredictor:
+    """Return the singleton, or raise a clear RuntimeError when the crop model
+    failed to load at startup so callers can map it to a 503 response."""
+    if crop_predictor is None:
+        raise RuntimeError("Crop model is unavailable (failed to load at startup).")
+    return crop_predictor

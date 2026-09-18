@@ -170,6 +170,13 @@ Errors:
   - `"Token has expired. Please refresh or log in again."` → expired access token
   - `"Could not validate credentials"` → invalid token
 
+Also available:
+```
+DELETE /api/v1/auth/me      (Bearer access token required)
+```
+Deletes the account (required for Play Store "Delete my account"). Success **204**.
+Errors: **401** (unauthenticated) or **500** (deletion failure).
+
 ---
 
 ### 3.6 Crop recommendation (from location)
@@ -327,11 +334,11 @@ Errors:
 
 - **413 / 415** — simple string message (see per-endpoint).
 
-- **429 — rate limited.** slowapi's default handler, **plain text** (not JSON):
+- **429 — rate limited.** Custom JSON handler (not slowapi's plain-text default):
+```json
+{"detail": "Too many requests. Please slow down and try again."}
 ```
-Rate limit exceeded: 10 per 1 minute
-```
-Handle `text/plain` on 429 explicitly in the mobile client.
+Parse `detail` like every other error.
 
 - **500 — server error.** Always generic, never leaks internals:
 ```json
@@ -349,7 +356,7 @@ Status-code summary you'll see:
 | 413 | Upload too large |
 | 415 | Unsupported file type (magic bytes) |
 | 422 | Schema/validation errors (structured body) |
-| 429 | Rate limit (text/plain body) |
+| 429 | Rate limit (JSON: `{"detail": "Too many requests. Please slow down and try again."}`) |
 | 500 | Internal error (generic body) |
 
 ---
@@ -360,7 +367,7 @@ Status-code summary you'll see:
 |---|---|
 | `/auth/signup`, `/auth/login`, `/auth/refresh` | 5 / minute per IP |
 | `/voice/query` | 10 / minute per IP |
-| `/predict/*` | no limit |
+| `/predict/*` | 25 / minute per IP |
 
 All rate limits are **per IP**, not per account. A single farmer on a shared NAT
 (office Wi-Fi) could hit the voice cap; the client should queue/retry with
@@ -389,7 +396,7 @@ backoff on 429.
 - [ ] Base URL from build config, not hardcoded
 - [ ] `Authorization: Bearer` header set with access token
 - [ ] Refresh-then-retry interceptor on 401 (not a forced re-login)
-- [ ] Handles 429 as plain text
+- [ ] Handles 429 as JSON `detail` (rate limit)
 - [ ] Handles 422 as `detail` + `errors[]`
 - [ ] Signed requests to `/predict/*` use `multipart/form-data` field `file`
 - [ ] `/auth/login` sends `application/x-www-form-urlencoded` (`username` = phone)

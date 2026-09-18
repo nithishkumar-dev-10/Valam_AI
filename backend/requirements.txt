@@ -46,6 +46,7 @@ python-dotenv==1.2.2
 python-jose==3.5.0
 python-multipart==0.0.32
 psycopg2-binary==2.9.10  # optional — PostgreSQL driver; only needed if DATABASE_URL is switched from sqlite://
+pytest==9.1.1  # dev/test — not needed at runtime; drives tests/test_audit.py
 pytz==2026.3.post1
 PyYAML==6.0.3
 regex==2026.7.19

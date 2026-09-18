@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from app.utils.logger import logger
@@ -9,9 +9,10 @@ from app.schemas.prediction import CropOutput
 from app.services.external.geocoding import reverse_geocode
 from app.services.external.weather_fetch import fetch_weather_features
 from app.services.external.soil_lookup import get_regional_soil_values
-from app.services.ml.crop_predictor import crop_predictor
+from app.services.ml.crop_predictor import get_predictor
 
-from app.config import NOMINATIM_USER_AGENT
+from app.config import NOMINATIM_USER_AGENT, PREDICT_RATE_PER_MINUTE
+from app.rate_limiter import limiter
 
 
 router = APIRouter(
@@ -46,9 +47,18 @@ class ManualCropInput(BaseModel):
 
 
 async def _predict_from_features(features: dict, location: str) -> CropOutput:
+    try:
+        predictor = get_predictor()
+    except RuntimeError:
+        logger.error("crop model is not loaded — refusing crop prediction")
+        raise HTTPException(
+            status_code=503,
+            detail="Crop model is currently unavailable. Please try again later.",
+        )
+
     # joblib predict is a blocking call; keep it off the single event loop.
     crop_name, confidence = await run_in_threadpool(
-        crop_predictor.predict,
+        predictor.predict,
         N=features["N"],
         P=features["P"],
         K=features["K"],
@@ -86,10 +96,12 @@ async def _predict_from_features(features: dict, location: str) -> CropOutput:
     responses={
         400: {"description": "Could not determine the state from those coordinates"},
         422: {"description": "Coordinates out of range or malformed"},
+        429: {"description": "Too many requests from this IP (25/minute)"},
         500: {"description": "Geocoding/weather lookup failed (generic body; detail logged server-side)"},
     },
 )
-async def predict_crop_simple(payload: SimpleCropInput):
+@limiter.limit(PREDICT_RATE_PER_MINUTE)
+async def predict_crop_simple(request: Request, payload: SimpleCropInput):
 
     try:
 
@@ -215,10 +227,12 @@ async def predict_crop_simple(payload: SimpleCropInput):
     ),
     responses={
         422: {"description": "Values out of range (e.g. rainfall < 0, humidity > 100)"},
+        429: {"description": "Too many requests from this IP (25/minute)"},
         500: {"description": "Prediction failed (generic body; detail logged server-side)"},
     },
 )
-async def predict_crop_manual(payload: ManualCropInput):
+@limiter.limit(PREDICT_RATE_PER_MINUTE)
+async def predict_crop_manual(request: Request, payload: ManualCropInput):
     """
     Manual override: supply exact N/P/K/temperature/humidity/ph/rainfall,
     bypassing geocoding and soil lookup entirely. Intended for advanced

@@ -2,10 +2,24 @@ import os
 import datetime
 
 import httpx
-from app.config import WEATHER_API_KEY
+from app.config import WEATHER_API_KEY, WEATHER_CACHE_TTL_SECONDS
+from app.utils.ttl_cache import TTLCache
 
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
 NASA_POWER_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
+
+# Free-tier quota shield: every /predict/crop-simple and /voice/query crop
+# branch would otherwise fire OpenWeather + NASA POWER per request. Cache the
+# rounded coordinate pair for WEATHER_CACHE_TTL_SECONDS (default 15 min) so a
+# village-full of farmers at the same farm doesn't burn N API calls back to
+# back. Singleflight also collapses the concurrent duplicates.
+_weather_cache: TTLCache[dict] = TTLCache()
+
+
+def _weather_cache_key(latitude: float, longitude: float):
+    # ~11 m resolution: farmers in the same village share a cache entry instead
+    # of every tiny decimal variation generating a fresh upstream request.
+    return (round(latitude, 4), round(longitude, 4))
 
 # NASA POWER rainfall is reported as a multi-day average. For crop
 # *recommendation* the meaningful signal is the long-run annual average
@@ -29,8 +43,18 @@ async def fetch_weather_features(
 
     API key is read from:
         WEATHER_API_KEY
-    """
 
+    Results are cached by rounded coordinates (TTLCache) so free-tier API
+    quotas are not hammered by repeated / same-village queries.
+    """
+    return await _weather_cache.get(
+        _weather_cache_key(latitude, longitude),
+        ttl=WEATHER_CACHE_TTL_SECONDS,
+        factory=lambda: _fetch_weather_features(latitude, longitude),
+    )
+
+
+async def _fetch_weather_features(latitude: float, longitude: float) -> dict:
     if not WEATHER_API_KEY:
         raise RuntimeError(
             "Weather API key is not configured. "

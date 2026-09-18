@@ -65,6 +65,14 @@ REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", "40
 # Upload limits (MB) — enforced in app/validation.py BEFORE ML inference.
 MAX_IMAGE_UPLOAD_MB = int(os.getenv("MAX_IMAGE_UPLOAD_MB", "15"))
 MAX_AUDIO_UPLOAD_MB = int(os.getenv("MAX_AUDIO_UPLOAD_MB", "15"))
+# Longest accepted voice note (seconds). FFprobe reads just the header (no
+# decode) so a long low-bitrate clip can't force a multi-minute Whisper decode.
+MAX_AUDIO_DURATION_SECONDS = int(os.getenv("MAX_AUDIO_DURATION_SECONDS", "300"))
+
+# App environment ("development" | "production"). Swagger docs/redoc are
+# disabled in production (app.main sets docs_url=None) so the API surface
+# isn't publicly browsable on the live server.
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 
 # Optional admin surface. When set, enables GET /api/v1/admin/logs so you can
 # read recent log lines with a curl one-liner instead of SSHing. Long random
@@ -74,6 +82,15 @@ ADMIN_ACCESS_KEY = os.getenv("ADMIN_ACCESS_KEY")
 # Rate limits (per IP) — enforced via slowapi in app/rate_limiter.py.
 LOGIN_RATE_PER_MINUTE = os.getenv("LOGIN_RATE_PER_MINUTE", "5/minute")
 VOICE_RATE_PER_MINUTE = os.getenv("VOICE_RATE_PER_MINUTE", "10/minute")
+# /predict/* (crop / disease / deep-weed / pest) — cheaper than the voice
+# pipeline but still CPU-heavy CNN inference + external geocode/weather calls,
+# so keep it mid-range: 25/min is inside the agreed 20–30 window.
+PREDICT_RATE_PER_MINUTE = os.getenv("PREDICT_RATE_PER_MINUTE", "25/minute")
+
+# Cache TTLs for third-party APIs we silently hammer on every /predict/crop-simple
+# and /voice/query (OpenWeather, NASA POWER, Nominatim all have free-tier quotas).
+WEATHER_CACHE_TTL_SECONDS = int(os.getenv("WEATHER_CACHE_TTL_SECONDS", "900"))
+GEOCODE_CACHE_TTL_SECONDS = int(os.getenv("GEOCODE_CACHE_TTL_SECONDS", "86400"))
 
 REQUIRED_ENV_VARS = {
     "SECRET_KEY": 'JWT signing secret — generate with: python -c "import secrets; print(secrets.token_urlsafe(64))"',

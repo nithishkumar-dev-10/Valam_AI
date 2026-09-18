@@ -21,7 +21,6 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
-from slowapi import _rate_limit_exceeded_handler
 import sqlalchemy
 
 from app.database import Base, engine
@@ -34,6 +33,7 @@ from app.config import (
     TEMP_UPLOAD_DIR,
     CORS_ORIGINS,
     ADMIN_ACCESS_KEY,
+    ENVIRONMENT,
 )
 from app.rate_limiter import limiter
 from app.middleware import AccessLogMiddleware
@@ -60,8 +60,8 @@ def _purge_voice_audio() -> None:
             if now - path.stat().st_mtime > _RETENTION_SECONDS:
                 path.unlink(missing_ok=True)
                 removed += 1
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning("Could not purge TTS clip %s: %s", path, exc)
     if removed:
         logger.info("Retention: purged %d expired TTS clips (older than %d days)", removed, VOICE_AUDIO_RETENTION_DAYS)
 
@@ -74,8 +74,8 @@ def _purge_temp_uploads() -> None:
         try:
             if path.is_file():
                 path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning("Could not purge temp upload %s: %s", path, exc)
 
 
 @asynccontextmanager
@@ -127,6 +127,7 @@ with a built-for-voice summary **and** a playable TTS audio clip.
 |----------|-------|
 | `POST /auth/signup`, `/auth/login`, `/auth/refresh` | 5 / minute |
 | `POST /voice/query` | 10 / minute |
+| `POST /predict/*` (crop, disease, deep-weed, pest) | 25 / minute |
 
 ## Auth model
 
@@ -140,6 +141,7 @@ with a built-for-voice summary **and** a playable TTS audio clip.
 * Backend: FastAPI + uvicorn behind nginx TLS (see `deploy/`).
 * Database: SQLite (WAL) by default; switch to PostgreSQL by setting `DATABASE_URL`.
 * All secrets/URLs come from `.env` — the app refuses to start without `SECRET_KEY`.
+* Swagger `/docs` + `/redoc` are **disabled in production** (`ENVIRONMENT=production`).
 """
 
 app = FastAPI(
@@ -156,13 +158,37 @@ app = FastAPI(
     },
     # Stable, versioned API for mobile clients (Play Store): frontends must
     # pin to /api/v1 so future breaking changes ship as /api/v2 harmlessly.
-    docs_url="/docs",
-    redoc_url="/redoc",
+    # Swagger/redoc stay ON in development but are disabled in production
+    # (ENVIRONMENT=production) so the live API surface isn't publicly browsable.
+    docs_url=None if ENVIRONMENT == "production" else "/docs",
+    redoc_url=None if ENVIRONMENT == "production" else "/redoc",
 )
 
 # Rate limiting (slowapi — in-memory store, single-worker deployment).
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    """429s conform to the API's error convention (`{"detail": ...}`) instead
+    of slowapi's default plain-text body. Retry-After is set manually (slowapi
+    keeps its header injection disabled by default, so its own `_inject_headers`
+    would be a no-op) so clients can back off instead of blind-polling."""
+    response = JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please slow down and try again."},
+    )
+    view_limit = getattr(request.state, "view_rate_limit", None)
+    if view_limit is not None:
+        try:
+            item, args = view_limit
+            reset_in, remaining = app.state.limiter.limiter.get_window_stats(item, *args)
+            response.headers["Retry-After"] = str(max(1, int(reset_in)))
+            response.headers["X-RateLimit-Limit"] = str(item.amount)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+        except Exception as exc:
+            logger.warning("Could not attach rate-limit headers: %s", exc)
+    return response
 
 # CORS: the frontend is a SEPARATE service (sibling ../frontend repo /
 # eventual Flutter app) talking to this API over HTTP. Origins come from the

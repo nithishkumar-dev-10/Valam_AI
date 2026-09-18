@@ -3,12 +3,39 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#2e7d4f" />
-    <meta name="description" content="Valam AI — a farmer assistant that speaks your language. Crop advice, disease and pest detection from a photo and a voice note." />
-    <title>Valam AI</title>
+    <meta name="theme-color" content="#1f7a3d" />
+    <meta
+      name="description"
+      content="Valam AI — voice-first assistant for Indian farmers. Crop advice, and disease & pest detection from a photo and a voice note. Tamil · English."
+    />
+    <title>Valam AI · வாலம்</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%231f7a3d'/%3E%3Ctext x='32' y='44' font-size='34' font-family='sans-serif' font-weight='bold' fill='%23fff' text-anchor='middle'%3E%E0%AE%B5%3C/text%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600;700;800&family=Noto+Sans+Tamil:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./css/styles.css" />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <div class="app-root">
+      <header class="topbar">
+        <button type="button" class="brand" data-route="home" aria-label="Valam AI home">
+          <span class="brand-mark" aria-hidden="true">வ</span>
+          <span class="brand-name">Valam&nbsp;AI</span>
+        </button>
+        <div class="topbar-right">
+          <div class="lang-toggle" role="group" aria-label="Language · மொழி" data-lang-toggle></div>
+        </div>
+      </header>
+
+      <main id="view" class="main" aria-live="polite"></main>
+
+      <footer class="footbar" data-authfoot></footer>
+    </div>
+
+    <div class="toast" data-toast hidden></div>
+    <script type="module" src="./js/app.js"></script>
   </body>
 </html>

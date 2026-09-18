@@ -23,3 +23,5 @@ backend/app/static/voice_responses/*.wav
 
 # MacOS noise
 .DS_Store
+
+.vscode/
