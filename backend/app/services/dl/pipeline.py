@@ -330,9 +330,9 @@ async def run_pipeline(
         if key == "crop":
             results.append(await _run_crop(latitude, longitude))
         elif key == "disease":
-            results.append(_run_disease(image_bytes))
+            results.append(await run_in_threadpool(_run_disease, image_bytes))
         elif key == "pest":
-            results.append(_run_pest(image_bytes))
+            results.append(await run_in_threadpool(_run_pest, image_bytes))
 
     # 5. response language: override > detected > English
     out_lang = lang_override if lang_override in VALID_LANGS else (

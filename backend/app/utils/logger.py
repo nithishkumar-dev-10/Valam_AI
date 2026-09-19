@@ -49,6 +49,13 @@ def _configure_handlers() -> None:
     root.addHandler(file_handler)
     root.addHandler(stream_handler)
 
+    # httpx logs every request URL (query string included) at INFO — that puts
+    # WEATHER_API_KEY's "appid" param into backend.log / journald on every
+    # weather cache-miss. Drop httpx to WARNING so no secrets hit the logs.
+    # Per-request tracing is preserved by AccessLogMiddleware (path only, no
+    # query string).
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 def get_logger() -> logging.Logger:
     """Return a child logger named after the calling module, e.g. app.routers.voice."""

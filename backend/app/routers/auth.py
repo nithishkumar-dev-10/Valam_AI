@@ -198,6 +198,29 @@ def read_me(farmer: Farmer = Depends(get_current_farmer)):
     return farmer
 
 
+@router.patch(
+    "/me",
+    response_model=FarmerOut,
+    summary="Update my profile",
+    description="Updates the logged-in farmer's display name. Requires `Authorization: Bearer <access-token>`.",
+    responses={
+        200: {"description": "Updated profile"},
+        401: {"description": "Not authenticated / invalid token"},
+        422: {"description": "Name too short"},
+    },
+)
+def update_me(
+    farmer: Farmer = Depends(get_current_farmer),
+    db: Session = Depends(get_db),
+    name: str = Body(..., min_length=1, max_length=80, embed=True),
+):
+    """Rename the authenticated farmer.  Returns the updated profile."""
+    farmer.name = name
+    db.commit()
+    db.refresh(farmer)
+    return farmer
+
+
 @router.delete(
     "/me",
     status_code=status.HTTP_204_NO_CONTENT,

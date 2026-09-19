@@ -121,6 +121,48 @@ def test_delete_account_requires_auth(client):
     assert r.status_code in (401, 422), r.text
 
 
+def test_rename_profile_patch_me(client):
+    phone = "9999999992"
+    r = client.post(
+        "/api/v1/auth/signup",
+        json={"name": "Old Name", "phone_number": phone, "password": "testpass123"},
+    )
+    assert r.status_code == 201, r.text
+
+    r = client.post("/api/v1/auth/login", data={"username": phone, "password": "testpass123"})
+    assert r.status_code == 200, r.text
+    token = r.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = client.patch("/api/v1/auth/me", json={"name": "New Name"}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "New Name"
+    assert r.json()["phone_number"] == phone
+
+    r = client.get("/api/v1/auth/me", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "New Name"
+
+
+def test_rename_profile_requires_valid_name(client):
+    phone = "9999999993"
+    r = client.post(
+        "/api/v1/auth/signup",
+        json={"name": "Nameless", "phone_number": phone, "password": "testpass123"},
+    )
+    assert r.status_code == 201, r.text
+
+    r = client.post("/api/v1/auth/login", data={"username": phone, "password": "testpass123"})
+    token = r.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = client.patch("/api/v1/auth/me", json={"name": ""}, headers=headers)
+    assert r.status_code == 422, r.text
+
+    r = client.patch("/api/v1/auth/me", json={"name": "No token"})
+    assert r.status_code in (401, 422), r.text
+
+
 # ---------------------------------------------------------------------------
 # Admin constant-time gate — converted audit_verify.py
 # ---------------------------------------------------------------------------

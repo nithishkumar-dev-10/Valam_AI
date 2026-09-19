@@ -2,7 +2,7 @@
 app/services/dl/voice_service.py
 
 Handles Speech-to-Text (local Whisper, with optional auto language
-detection), translation (deep-translator, free), and Text-to-Speech (gTTS).
+detection) and Text-to-Speech (gTTS).
 
 Pipeline: Tamil audio -> Tamil text -> English text (for intent routing)
           -> English response -> Tamil response -> Tamil audio
@@ -13,7 +13,6 @@ import uuid
 import threading
 import whisper
 from gtts import gTTS
-from deep_translator import GoogleTranslator   # pip install deep-translator (free, no API key)
 
 from app.config import WHISPER_MODEL_SIZE, VOICE_AUDIO_OUTPUT_DIR, DEFAULT_VOICE_LANGUAGE
 from app.utils.logger import logger
@@ -39,6 +38,13 @@ class VoiceService:
             size = self._model_size or WHISPER_MODEL_SIZE
             logger.info(f"Loading Whisper model: {size}")
             self.model = whisper.load_model(size)
+
+    def warm_up(self) -> bool:
+        """Load the Whisper model eagerly at startup so the first /voice/query
+        caller doesn't pay a multi-second model load. Idempotent — safe to
+        call multiple times."""
+        self._ensure_loaded()
+        return self.model is not None
 
     def transcribe(
         self, audio_file_path: str, language: str | None = DEFAULT_VOICE_LANGUAGE
@@ -70,17 +76,6 @@ class VoiceService:
             "language": detected,
             "language_probability": prob,
         }
-
-    def translate(self, text: str, source: str, target: str) -> str:
-        """
-        Generic translate helper. source/target are language codes, e.g.
-        'ta' (Tamil), 'en' (English), 'hi' (Hindi).
-        """
-        try:
-            return GoogleTranslator(source=source, target=target).translate(text)
-        except Exception as e:
-            logger.error(f"Translation failed ({source}->{target}): {e}")
-            raise
 
     def synthesize(self, text: str, language: str = DEFAULT_VOICE_LANGUAGE) -> str:
         """

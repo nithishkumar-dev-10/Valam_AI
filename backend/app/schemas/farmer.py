@@ -5,7 +5,7 @@ Pydantic schemas for signup/login request and response shapes.
 """
 
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class FarmerSignup(BaseModel):
@@ -26,6 +26,7 @@ class FarmerSignup(BaseModel):
         ...,
         min_length=10,
         max_length=15,
+        pattern=r"^\+?\d{10,15}$",
         description="Login phone number (digits, optional +91).",
         examples=["9845012345"],
     )
@@ -33,9 +34,16 @@ class FarmerSignup(BaseModel):
         ...,
         min_length=6,
         max_length=128,
-        description="Password — hashed with bcrypt, never returned by the API.",
+        description="Password — 6–128 chars, must include letters AND digits. Hashed with bcrypt, never returned by the API.",
         examples=["S3cur3-Passw0rd!"],
     )
+
+    @field_validator("password")
+    @classmethod
+    def _password_needs_letters_and_digits(cls, v: str) -> str:
+        if not any(c.isalpha() for c in v) or not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain both letters and numbers")
+        return v
 
 
 class FarmerLogin(BaseModel):
