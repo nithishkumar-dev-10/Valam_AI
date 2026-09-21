@@ -19,7 +19,7 @@ a public `https://` API with daily backups and basic monitoring.
    ▼
  uvicorn (1 worker)  →  FastAPI app
    ├── .env                        (secrets; never committed)
-   ├── valam.db  (SQLite WAL)      ← daily VACUUM INTO backup
+   ├── db/valam.db  (SQLite WAL)   ← daily VACUUM INTO backup
    └── logs/backend.log            (rotating; admin/logs endpoint)
 ```
 
@@ -69,13 +69,13 @@ pre-downloads the Whisper weights.
 
 From your laptop (excludes venv/db/logs/python PC noise):
 ```bash
-rsync -av --delete --exclude='venv' --exclude='valam.db*' --exclude='logs' \
+rsync -av --delete --exclude='venv' --exclude='db/valam.db*' --exclude='logs' \
   --exclude='app/temp_uploads' --exclude='__pycache__' \
   backend/ ubuntu@<PUBLIC_IP>:/tmp/valam-upload/
 ssh ubuntu@<PUBLIC_IP> 'sudo rsync -a --delete /tmp/valam-upload/ /opt/valam/backend/ &&
   sudo chown -R valamuser:valamuser /opt/valam'
 ```
-(`--delete` keeps the VM copy mirrored to the repo; keep `valam.db*` out so a
+(`--delete` keeps the VM copy mirrored to the repo; keep `db/valam.db*` out so a
 VM DB is never clobbered by a stale local one.)
 
 ---

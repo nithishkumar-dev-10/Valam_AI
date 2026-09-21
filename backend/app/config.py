@@ -54,7 +54,9 @@ CORS_ORIGINS = [
     if o.strip()
 ]
 
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'valam.db'}")
+# Default SQLite file lives in backend/db/ (app/database.py creates the folder
+# on import). Override DATABASE_URL for Postgres — nothing else changes.
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'db' / 'valam.db'}")
 
 # JWT signing secret — REQUIRED. No fallback on purpose: running with a weak
 # or known key is worse than not starting. Generate one with:

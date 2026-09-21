@@ -16,11 +16,15 @@ __pycache__/
 .ruff_cache/
 
 # --- local databases & runtime artifacts ---
-*.db
-*.db-wal
-*.db-shm
-*.sqlite
-*.sqlite3
+# Patterns match against the path from the build-context root, so a bare `*.db`
+# only covers the TOP level. `**/` (plus the explicit `db/`) keeps the nested
+# runtime DB (backend/db/valam.db) from being baked into the image.
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.sqlite
+**/*.sqlite3
+db/
 logs/
 log.txt
 app/temp_uploads/
@@ -29,8 +33,8 @@ app/static/voice_responses/*.wav
 
 # --- tests & dev-only material (keep the runtime image lean) ---
 tests/
-FINDINGS.md
-explanation.ipynb
+# docs/ now holds FINDINGS.md + explanation.ipynb (moved from backend/ root).
+docs/
 training_log.txt
 reports/
 requirements-dev.txt

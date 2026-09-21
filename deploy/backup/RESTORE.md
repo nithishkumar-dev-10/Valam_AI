@@ -15,7 +15,7 @@ gunzip -k <newest-backup>.db.gz        # creates <newest-backup>.db
 
 # 3. Restore (one atomic move — safe even with the service running)
 sudo systemctl stop valam-backend
-sudo cp <newest-backup>.db /opt/valam/backend/valam.db
+sudo cp <newest-backup>.db /opt/valam/backend/db/valam.db
 sudo systemctl start valam-backend
 
 # 4. Verify
@@ -31,9 +31,9 @@ That is the entire procedure for a full restore.
 | Symptom | Action |
 |---------|--------|
 | Farmers can't log in (DB *open* but looks wrong/partial) | Restore newest backup, or re-seed with `scripts/seed_farmers.py` |
-| App won't start; `valam.db` corrupt / `database disk image is malformed` | **Restore** (repair-in-place is rarely worth it) |
+| App won't start; `db/valam.db` corrupt / `database disk image is malformed` | **Restore** (repair-in-place is rarely worth it) |
 | Data missing but no corruption (e.g. accidental DELETE) | Restore backup taken *before* the incident |
-| Only a couple of accounts were deleted recently | Cheapest is `sqlite3 valam.db` manual INSERT from a backup — but if unsure, full restore |
+| Only a couple of accounts were deleted recently | Cheapest is `sqlite3 db/valam.db` manual INSERT from a backup — but if unsure, full restore |
 
 ---
 ## Decide which snapshot
@@ -72,9 +72,10 @@ ls -lt /opt/valam-backups/
    stale `-wal` can't resurrect the broken DB:
    ```bash
    APP=/opt/valam/backend
-   cp /tmp/valam-restore.db "$APP/valam.db"
-   rm -f "$APP/valam.db-wal" "$APP/valam.db-shm"
-   chown valamuser:valamuser "$APP/valam.db"    # match your service user
+   mkdir -p "$APP/db"
+   cp /tmp/valam-restore.db "$APP/db/valam.db"
+   rm -f "$APP/db/valam.db-wal" "$APP/db/valam.db-shm"
+   chown valamuser:valamuser "$APP/db/valam.db"    # match your service user
    ```
 
 6. **Start & verify**:
@@ -114,7 +115,7 @@ sudo -u valamuser .venv/bin/python scripts/seed_farmers.py
 
 ```bash
 # Boot a scratch copy of the DB on a THROWAWAY path, run the API off it:
-cd /tmp && cp /opt/valam/backend/valam.db /tmp/testrestore.db
+cd /tmp && cp /opt/valam/backend/db/valam.db /tmp/testrestore.db
 DATABASE_URL="sqlite:////tmp/testrestore.db" \
   .venv/bin/python scripts/seed_farmers.py        # idempotent: prints "0 already present"
 ```

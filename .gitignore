@@ -15,9 +15,7 @@ frontend/.env.*.local
 
 # Backend runtime artifacts — never commit these.
 backend/.env
-backend/valam.db
-backend/valam.db-wal
-backend/valam.db-shm
+backend/db/
 backend/logs/
 backend/app/temp_uploads/
 backend/app/static/voice_responses/*.mp3

@@ -43,7 +43,7 @@ Follow **`deploy/README.md` §1–§2** (create VM, open only 22/80/443, run
 ```bash
 # from your laptop
 rsync -av --delete \
-  --exclude='venv' --exclude='valam.db*' --exclude='logs' \
+  --exclude='venv' --exclude='db/valam.db*' --exclude='logs' \
   --exclude='app/temp_uploads' --exclude='__pycache__' \
   --exclude='app/static/voice_responses' \
   backend/ ubuntu@<VM_IP>:/tmp/valam-upload/

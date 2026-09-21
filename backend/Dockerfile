@@ -93,7 +93,7 @@ WORKDIR /app
 COPY . .
 
 # Writable runtime dirs (TTS clips, audio temp files, rotating logs).
-RUN mkdir -p /app/logs /app/app/temp_uploads /app/app/static/voice_responses \
+RUN mkdir -p /app/logs /app/db /app/app/temp_uploads /app/app/static/voice_responses \
  && chown -R appuser:appuser /app /home/appuser
 
 USER appuser
@@ -106,6 +106,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
 
 # Production ASGI server. Workers are configurable: 2 is safe once DATABASE_URL
 # points at Postgres. On the default SQLite (single-writer) + in-memory rate
-# limiter setup, set UVICORN_WORKERS=1 (see docker-compose.yml / DEPLOY_RUNBOOK.md).
+# limiter setup, set UVICORN_WORKERS=1 (see docker-compose.yml / docs/DEPLOY_RUNBOOK.md).
 ENV UVICORN_WORKERS=2
 CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS} --proxy-headers --forwarded-allow-ips '*'"]

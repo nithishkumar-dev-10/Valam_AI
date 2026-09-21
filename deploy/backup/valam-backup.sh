@@ -23,7 +23,8 @@
 set -euo pipefail
 
 # --- configuration (overridable via env) ------------------------------------
-APP_DIR="${APP_DIR:-/opt/valam/backend}"          # where valam.db lives
+APP_DIR="${APP_DIR:-/opt/valam/backend}"          # backend root on the VM
+DB_FILE="${DB_FILE:-$APP_DIR/db/valam.db}"        # SQLite DB (backend/db/valam.db)
 BACKUP_DIR="${BACKUP_DIR:-/opt/valam-backups}"    # where snapshots go
 BACKUP_KEEP="${BACKUP_KEEP:-30}"                  # daily x 30 = ~1 month
 OCI_BUCKET="${OCI_BUCKET:-valam-backups}"         # Object Storage bucket name
@@ -35,12 +36,12 @@ SNAPSHOT="$BACKUP_DIR/valam-${TIMESTAMP}.db"
 mkdir -p "$BACKUP_DIR"
 
 # Refuse to back up a corrupt database — you don't want to archive garbage.
-if ! sqlite3 "$APP_DIR/valam.db" "PRAGMA integrity_check;" 2>/dev/null | grep -q "^ok$"; then
-    echo "ERROR: integrity_check failed on $APP_DIR/valam.db — backup aborted." >&2
+if ! sqlite3 "$DB_FILE" "PRAGMA integrity_check;" 2>/dev/null | grep -q "^ok$"; then
+    echo "ERROR: integrity_check failed on $DB_FILE — backup aborted." >&2
     exit 1
 fi
 
-sqlite3 "$APP_DIR/valam.db" "VACUUM INTO '$SNAPSHOT';"
+sqlite3 "$DB_FILE" "VACUUM INTO '$SNAPSHOT';"
 gzip -f "$SNAPSHOT"
 SNAPSHOT_GZ="$SNAPSHOT.gz"
 echo "backup ok: $(basename "$SNAPSHOT_GZ") ($(du -h "$SNAPSHOT_GZ" | cut -f1))"
