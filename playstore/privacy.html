@@ -13,6 +13,7 @@
     th { background: #f0fdf4; }
     small { display: block; margin-top: 2rem; color: #6b7280; }
     a { color: #15803d; }
+    code { background: #f3f4f6; padding: .1rem .3rem; border-radius: 3px; }
   </style>
 </head>
 <body>
@@ -21,10 +22,10 @@
 <p><strong>Last updated:</strong> September 2026</p>
 <p>
   This Privacy Policy explains how <strong>Valam AI</strong> ("we," "our," or "us")
-  collects, uses, and protects your information when you use the Valam AI mobile
-  application (the "App"). We built this App specifically for Indian farmers; we do
-  not sell your personal data, and we collect only what is needed to provide
-  agricultural guidance.
+  collects, uses, and protects your information when you use the Valam AI Android
+  application, package <code>in.valam.app</code> (the "App"), and the optional web
+  app. We built this App specifically for Indian farmers; we do not sell your
+  personal data, and we collect only what is needed to provide agricultural guidance.
 </p>
 
 <h2>1. Information We Collect</h2>
@@ -38,26 +39,26 @@
   </tr>
   <tr>
     <td><strong>Account information</strong></td>
-    <td>Name, phone number, and password (stored as an encrypted hash)</td>
+    <td>Name, phone number, and password (stored as a bcrypt hash)</td>
     <td>Only when you voluntarily create an account (optional — all features work without an account)</td>
     <td>Yes — retained until deletion</td>
   </tr>
   <tr>
     <td><strong>Voice recordings</strong></td>
-    <td>Audio files you record to ask questions</td>
-    <td>Optional — used only to transcribe your spoken question via on-device speech-to-text (Whisper AI, runs locally on our servers; your audio never leaves our server)</td>
-    <td><strong>No</strong> — processed in memory, immediately deleted after transcription</td>
+    <td>Audio you record to ask questions</td>
+    <td>Optional — transcribed to text by <strong>local</strong> Whisper speech-to-text running on our servers (your audio is never sent to OpenAI or any other party). Requires the Android microphone permission.</td>
+    <td><strong>No</strong> — written to a temporary file and deleted immediately after transcription</td>
   </tr>
   <tr>
     <td><strong>Photos</strong></td>
-    <td>Field/plant photos you upload</td>
-    <td>Optional — used only for disease, weed, and pest detection via local AI models</td>
-    <td><strong>No</strong> — processed in memory, never saved to storage</td>
+    <td>Field/plant photos you choose</td>
+    <td>Optional — used only for disease, weed, and pest detection via local AI models, chosen through the device's standard photo picker</td>
+    <td><strong>No</strong> — processed in memory, never written to disk</td>
   </tr>
   <tr>
     <td><strong>GPS coordinates</strong></td>
-    <td>Precise latitude and longitude (if you choose to share location)</td>
-    <td>Optional — used only to look up your district's weather and soil data for crop recommendation</td>
+    <td>Precise latitude and longitude (only if you choose to share location)</td>
+    <td>Optional — used to look up your area's district and weather/rainfall data for crop recommendation. Requires the Android location permission.</td>
     <td><strong>No</strong> — sent to third-party weather/geocoding services in real time and not retained</td>
   </tr>
   <tr>
@@ -65,6 +66,12 @@
     <td>TTS (text-to-speech) audio clips of the AI response</td>
     <td>Automatically generated to allow audio playback of results</td>
     <td>Temporarily — auto-deleted after <strong>30 days</strong> (continuous server sweep, every 6 hours)</td>
+  </tr>
+  <tr>
+    <td><strong>Authentication cookie</strong></td>
+    <td>An httpOnly <code>refresh_token</code> cookie (not readable by scripts)</td>
+    <td>Set only when you sign in, to keep you logged in without re-entering your password; rotated on every refresh and revoked on logout</td>
+    <td>Until logout / expiry (28 days) / revocation</td>
   </tr>
   <tr>
     <td><strong>Server logs</strong></td>
@@ -83,9 +90,10 @@
 <h2>2. How We Use Your Information</h2>
 <ul>
   <li><strong>Account info</strong>: solely to authenticate you and deliver your account profile.</li>
-  <li><strong>Voice recordings</strong>: transcribed to text so we can understand your question; the text (not the audio) may be used to route your query to the right AI model.</li>
-  <li><strong>Photos</strong>: analysed by our AI models to identify plant diseases, weeds, or pests.</li>
-  <li><strong>GPS coordinates</strong>: sent to the third-party services listed below to fetch weather and soil data for your area, which powers the crop recommendation feature.</li>
+  <li><strong>Voice recordings</strong>: transcribed to text so we can understand your question; the text (not the audio) is used to route your query to the right AI model.</li>
+  <li><strong>Photos</strong>: analysed by our local AI models to identify plant diseases, weeds, or pests.</li>
+  <li><strong>GPS coordinates</strong>: sent to the third-party services listed below to fetch weather and rainfall data for your area, which powers the crop recommendation feature.</li>
+  <li><strong>Cookie</strong>: keep you signed in between sessions.</li>
 </ul>
 
 <h2>3. Third-Party Services We Use</h2>
@@ -107,33 +115,34 @@
     <td>OpenWeatherMap</td>
     <td>GPS coordinates only</td>
     <td>Current temperature and humidity data</td>
-    <td><a href="https://openweather.org/privacy-policy">OpenWeatherMap Privacy Policy</a></td>
+    <td><a href="https://openweather.co.uk/privacy-policy">OpenWeatherMap Privacy Policy</a></td>
   </tr>
   <tr>
     <td>NASA POWER</td>
     <td>GPS coordinates only</td>
     <td>Historical annual rainfall data</td>
-    <td><a href="https://www.nasa.gov/about/highlights/HP_Privacy.html">NASA Privacy Policy</a></td>
+    <td><a href="https://www.nasa.gov/privacy/">NASA Privacy Policy</a></td>
   </tr>
   <tr>
     <td>OpenStreetMap / Nominatim</td>
     <td>GPS coordinates only</td>
-    <td>Reverse geocoding (coordinates → district/state name)</td>
-    <td><a href="https://wiki.osmfoundation.org/wiki/Privacy_Policy">OSMF Privacy Policy</a></td>
+    <td>Reverse geocoding (coordinates &rarr; district/state name)</td>
+    <td><a href="https://osmfoundation.org/wiki/Privacy_Policy">OSMF Privacy Policy</a></td>
   </tr>
 </table>
 
 <p>
   <strong>Important note about Google TTS:</strong> When the App generates an audio response,
-  the text is sent to Google's Text-to-Speech servers. This text may contain a summary
-  of your spoken question. This is the only instance in which user-derived content is
-  transmitted outside our servers. We do not share your personal identifiers (name,
-  phone number) with any third party.
+  the summary text is sent to Google's Text-to-Speech servers. This text may contain a
+  paraphrase of your spoken question. This is the <strong>only</strong> instance in which
+  user-derived content is transmitted outside our servers. We do not share your personal
+  identifiers (name, phone number) with any third party.
 </p>
 
 <p>
   We do <strong>not</strong> use any advertising, analytics, crash-reporting, or
-  fingerprinting services.
+  fingerprinting services, and there is <strong>no Google Gemini / GenAI integration</strong>
+  anywhere in the product.
 </p>
 
 <h2>4. Data Sharing and Sale</h2>
@@ -144,26 +153,40 @@
   the App's features.
 </p>
 
-<h2>5. Data Retention</h2>
+<h2>5. Cookies and Tracking</h2>
+<p>
+  The only cookie is the httpOnly <code>refresh_token</code> cookie described above, used
+  solely to keep you signed in. We use no analytics, advertising, or tracking cookies and
+  no other web trackers.
+</p>
+
+<h2>6. Data Retention</h2>
 <table>
   <tr><th>Data type</th><th>Retention period</th></tr>
   <tr><td>Account data (name, phone, password hash)</td><td>Until you request deletion</td></tr>
   <tr><td>Voice recordings &amp; photos</td><td>Not stored — processed and deleted immediately</td></tr>
   <tr><td>Generated TTS audio</td><td>30 days, then auto-deleted</td></tr>
+  <tr><td>Authentication cookie</td><td>Until logout, expiry (28 days), or revocation</td></tr>
   <tr><td>Server logs</td><td>30 days, auto-rotated</td></tr>
   <tr><td>GPS coordinates</td><td>Not retained — used in real time only</td></tr>
 </table>
 
-<h2>6. Data Security</h2>
+<h2>7. Data Security</h2>
 <ul>
   <li>All communication between the App and our servers is encrypted via HTTPS/TLS.</li>
   <li>Passwords are stored using bcrypt hashing — your plaintext password is never stored.</li>
-  <li>User authentication uses time-limited JWT tokens (access: 7 days; refresh: 28 days).</li>
-  <li>User-uploaded photos and audio are processed in memory and never written to disk.</li>
+  <li>Authentication uses short-lived JWTs: the access token lasts <strong>15 minutes</strong>
+      and is held in memory only; the refresh token lasts 28 days but is <strong>rotated on
+      every use</strong> and revoked server-side on logout, account deletion, and reuse detection.</li>
+  <li>The refresh token is delivered as an <strong>httpOnly + Secure + SameSite</strong> cookie
+      and is never accessible to JavaScript or localStorage.</li>
+  <li>Photos are processed in memory and never written to disk; audio temp files are deleted
+      immediately after transcription.</li>
+  <li>The Android build blocks all cleartext (plain HTTP) traffic at the operating-system level.</li>
   <li>Our server is hosted on Oracle Cloud infrastructure with firewall rules restricting access.</li>
 </ul>
 
-<h2>7. Your Rights — Account and Data Deletion</h2>
+<h2>8. Your Rights — Account and Data Deletion</h2>
 <p>You can delete your account <strong>directly in the app</strong> at any time: open
   the account screen and choose <strong>"Delete my account"</strong>. Your account
   (name, phone number, and password hash) is permanently removed immediately,
@@ -183,21 +206,21 @@
   <li>Anonymised server logs (containing only IP addresses and timestamps, not linked to your account) may be retained for security purposes.</li>
 </ul>
 
-<h2>8. Children's Privacy</h2>
+<h2>9. Children's Privacy</h2>
 <p>
   The App is not directed to children under the age of 13. We do not knowingly collect
   personal data from children. If we become aware that a child has provided us with
   personal data, we will take steps to delete it promptly.
 </p>
 
-<h2>9. Changes to This Policy</h2>
+<h2>10. Changes to This Policy</h2>
 <p>
   We may update this Privacy Policy from time to time. Changes will be posted at this
   URL with a revised "Last updated" date. Continued use of the App after changes are
   posted constitutes acceptance of the updated policy.
 </p>
 
-<h2>10. Contact Us</h2>
+<h2>11. Contact Us</h2>
 <p>
   If you have any questions about this Privacy Policy or your data, contact us at:<br>
   Email: <a href="mailto:privacy@valam.in">privacy@valam.in</a><br>
@@ -206,8 +229,8 @@
 
 <small>
   This privacy policy is based on the actual data practices implemented in the
-  Valam AI backend codebase (valam.in). All claims above reflect the code as of
-  September 2026.
+  Valam AI backend codebase and the shipped Android app. All claims above reflect
+  the code as of September 2026.
 </small>
 
 </body>

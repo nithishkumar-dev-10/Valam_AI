@@ -261,6 +261,8 @@ async def predict_crop_manual(request: Request, payload: ManualCropInput):
             },
             location="manual input",
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("crop-manual failed: %s", exc)
         raise HTTPException(

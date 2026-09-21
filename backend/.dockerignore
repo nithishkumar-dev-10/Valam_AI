@@ -1,0 +1,47 @@
+# Build context hygiene for backend/Dockerfile.
+# Keep the image free of secrets, local DBs, caches and test tooling.
+
+# --- secrets & local env (NEVER bake these into an image) ---
+.env
+.env.*
+!.env.example
+
+# --- virtualenvs / bytecode / caches ---
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- local databases & runtime artifacts ---
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+logs/
+log.txt
+app/temp_uploads/
+app/static/voice_responses/*.mp3
+app/static/voice_responses/*.wav
+
+# --- tests & dev-only material (keep the runtime image lean) ---
+tests/
+FINDINGS.md
+explanation.ipynb
+training_log.txt
+reports/
+requirements-dev.txt
+
+# --- large local datasets (image only needs app/ml_models/*) ---
+data/
+config/
+
+# --- VCS / editor / OS noise ---
+.git
+.gitignore
+.DS_Store
+.vscode/
+.idea/
