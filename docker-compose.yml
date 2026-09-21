@@ -11,7 +11,7 @@
 #     -e UVICORN_WORKERS=1 valam-backend
 #
 # This file is for LOCAL TESTING. Production uses the deploy/ runbook
-# (see DEPLOY_RUNBOOK.md) or these same images behind a TLS reverse proxy.
+# (see docs/DEPLOY_RUNBOOK.md) or these same images behind a TLS reverse proxy.
 # =============================================================================
 
 name: valam

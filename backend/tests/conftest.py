@@ -2,7 +2,7 @@
 
 Env vars are set BEFORE any `app.*` import so app.config reads the right
 values (SECRET_KEY is validated at import; DATABASE_URL drives a throwaway
-SQLite file instead of the repo's live backend/valam.db).
+SQLite file instead of the repo's live backend/db/valam.db).
 """
 
 import os

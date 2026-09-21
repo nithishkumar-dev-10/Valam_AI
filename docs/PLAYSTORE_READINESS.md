@@ -73,7 +73,7 @@ already in `CORS_ORIGINS`.
 | `playstore/DATA_SAFETY_FORM.md` | Exact Play Console answer key (precise location, name, phone, photos, audio; no device IDs/ads/analytics) |
 | `playstore/STORE_LISTING_DRAFT.md` | New: title, 79-char short description, ~1500-char full description, screenshot shot-list |
 | `playstore/APP_SIGNING.md` | Rewritten for Capacitor/Android + exact keytool command |
-| `DEPLOY_RUNBOOK.md` | New: launch checklist with **both** Docker and systemd paths |
+| `docs/DEPLOY_RUNBOOK.md` | New: launch checklist with **both** Docker and systemd paths |
 
 ### Repo hygiene
 - Root `.gitignore` + `frontend/android/.gitignore`: keystores (`*.jks`,
@@ -117,7 +117,7 @@ already in `CORS_ORIGINS`.
 7. **Complete App content** in Play Console — use `DATA_SAFETY_FORM.md` verbatim;
    content rating, target audience, ads declaration.
 8. **Secrets** — generate production `SECRET_KEY` and `ADMIN_ACCESS_KEY`, add the
-   real `WEATHER_API_KEY`, set the production `.env` (see `DEPLOY_RUNBOOK.md` §3).
+   real `WEATHER_API_KEY`, set the production `.env` (see `docs/DEPLOY_RUNBOOK.md` §3).
 9. **Submit for review** and respond to Google's feedback.
 
 ### Should do soon after

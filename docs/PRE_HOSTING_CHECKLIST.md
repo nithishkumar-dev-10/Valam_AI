@@ -123,7 +123,7 @@ These sweep changes are **not committed** and sit on top of `b5834bd4`:
 - modified: `.gitignore`, `backend/.env.example`, `frontend/src/locales/{en,ta}.json`,
   `backend/app/routers/{crop,disease,deep_weed}.py`
 - deleted (unstaged): the 26 files listed in Section 5
-- added: this file (`PRE_HOSTING_CHECKLIST.md`)
+- added: this file (`docs/PRE_HOSTING_CHECKLIST.md`)
 
 The two remaining pytest warnings are dependency-level and not actionable here:
 Starlette's `httpx` -> `httpx2` deprecation, and passlib's use of the deprecated `crypt` module.

@@ -13,12 +13,23 @@ of how the connection is created (including Alembic or CLI tools).
 """
 
 import logging
+from pathlib import Path
+
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 from app.config import DATABASE_URL
 
 logger = logging.getLogger("valam_ai.database")
+
+# SQLite creates the database FILE but not its parent directory, and the default
+# URL points at backend/db/valam.db. Create that folder up front so a fresh
+# checkout / container / VM boots with zero manual setup. No-op for Postgres and
+# for in-memory test databases.
+if DATABASE_URL.startswith("sqlite"):
+    _sqlite_path = DATABASE_URL[len("sqlite:///"):]
+    if _sqlite_path and _sqlite_path != ":memory:":
+        Path(_sqlite_path).parent.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # Engine kwargs vary by dialect.
