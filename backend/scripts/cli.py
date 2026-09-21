@@ -6,7 +6,7 @@ detection (Tamil vs English). Intent parsing / branching / TTS arrive in
 later steps.
 
 Usage:
-    python cli.py --image leaf.jpg --voice query.wav --lat 11.0 --lon 78.0 --lang en
+    python scripts/cli.py --image leaf.jpg --voice query.wav --lat 11.0 --lon 78.0 --lang en
 
 Languages: voice language is auto-detected by Whisper unless --lang is given.
 Response language priority (resolved in later steps): --lang > detected voice
@@ -26,7 +26,10 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+# This script lives in backend/scripts/ but imports the `app` package from the
+# backend root, so put that root (the parent of scripts/) on sys.path. Explicit
+# so the CLI works no matter which directory it is launched from.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 

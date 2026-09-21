@@ -1,7 +1,7 @@
 """
 Quick CLI prediction — no server needed.
 Usage:
-    python3 scripts/predict_cli.py 90 42 43 20.9 82.0 6.5 200.0
+    python3 tests/manual_tests/predict_crop_rec.py 90 42 43 20.9 82.0 6.5 200.0
     (order: N P K temperature humidity ph rainfall)
 """
 
@@ -15,7 +15,7 @@ model = joblib.load(MODEL_DIR / "crop_recommender.pkl")
 label_encoder = joblib.load(MODEL_DIR / "label_encoder.pkl")
 
 if len(sys.argv) != 8:
-    print("Usage: python3 predict_cli.py N P K temperature humidity ph rainfall")
+    print("Usage: python3 tests/manual_tests/predict_crop_rec.py N P K temperature humidity ph rainfall")
     sys.exit(1)
 
 values = [float(x) for x in sys.argv[1:]]
