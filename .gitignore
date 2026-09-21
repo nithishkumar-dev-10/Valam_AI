@@ -6,8 +6,10 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 
-# Machine-local frontend env overrides (real .env is committed with the
-# harmless localhost default; copy .env.example and set VITE_API_BASE_URL).
+# Machine-local frontend env overrides. A committed frontend/.env only ever
+# carried the harmless localhost VITE_API_BASE_URL default; keep it out of git
+# anyway so real VITE_* values can't leak. Copy frontend/.env.example instead.
+frontend/.env
 frontend/.env.local
 frontend/.env.*.local
 
@@ -20,6 +22,26 @@ backend/logs/
 backend/app/temp_uploads/
 backend/app/static/voice_responses/*.mp3
 backend/app/static/voice_responses/*.wav
+
+# SQLite databases anywhere (incl. Postgres-style *.sqlite and future test dbs).
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Android / Capacitor signing and build output — NEVER commit the keystore or
+# its passwords (see playstore/APP_SIGNING.md).
+*.jks
+*.keystore
+key.properties
+key.properties.*
+frontend/android/local.properties
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/app/release/
+frontend/android/capacitor-cordova-android-plugins/
 
 # MacOS noise
 .DS_Store

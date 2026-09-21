@@ -45,6 +45,9 @@ passlib==1.7.4
 pillow==12.3.0
 pyasn1==0.6.4
 pycparser==3.0
+# PostgreSQL driver. Not needed for the default SQLite setup, but required the
+# moment DATABASE_URL points at Postgres (docker-compose.yml / production).
+psycopg2-binary==2.9.10
 pydantic==2.9.0
 pydantic_core==2.23.2
 python-dateutil==2.9.0.post0

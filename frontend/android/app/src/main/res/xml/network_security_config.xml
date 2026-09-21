@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network security policy for Valam AI.
+
+  HTTPS-only: cleartext (plain HTTP) traffic is disabled app-wide, so a
+  downgrade or a misconfigured URL fails loudly instead of sending audio,
+  photos and credentials in the clear. The API is explicitly pinned to HTTPS
+  with no cleartext fallback.
+
+  NOTE: this is "HTTPS-only" pinning, NOT certificate pinning. Full
+  <pin-set> cert pinning is intentionally omitted because it breaks the app on
+  every Let's Encrypt re-issue / key rotation unless carefully maintaintained.
+  Revisit only if a security review demands it.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">api.valam.in</domain>
+    </domain-config>
+</network-security-config>

@@ -1,0 +1,96 @@
+# =============================================================================
+# Valam AI — local full-stack stack (backend + Postgres + frontend).
+#
+#   docker compose up --build          # then open http://localhost:8080
+#   docker compose exec backend python scripts/seed_farmers.py   # optional seed
+#   docker compose down -v             # stop + wipe the Postgres volume
+#
+# For a quick SINGLE-CONTAINER backend smoke test (SQLite, no Postgres):
+#   docker build -t valam-backend ./backend
+#   docker run --rm -p 8000:8000 -e SECRET_KEY=$(openssl rand -hex 32) \
+#     -e UVICORN_WORKERS=1 valam-backend
+#
+# This file is for LOCAL TESTING. Production uses the deploy/ runbook
+# (see DEPLOY_RUNBOOK.md) or these same images behind a TLS reverse proxy.
+# =============================================================================
+
+name: valam
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — used here instead of SQLite so the stack matches production and
+  # so the backend can safely run >1 uvicorn worker. (On SQLite you MUST keep
+  # UVICORN_WORKERS=1: it is a single-writer database.)
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: valam
+      POSTGRES_PASSWORD: valam_dev_password
+      POSTGRES_DB: valam
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U valam -d valam"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    # Uncomment to inspect the DB from the host with psql:
+    # ports:
+    #   - "5432:5432"
+
+  # ---------------------------------------------------------------------------
+  # Backend (FastAPI + uvicorn). Models + Whisper weights are baked into the
+  # image by backend/Dockerfile.
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+    image: valam-backend:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # DEV-ONLY secret. Never use this value anywhere real; production provides
+      # its own via a 600-mode .env (deploy/README.md).
+      SECRET_KEY: ${SECRET_KEY:-dev-only-secret-change-me-00000000000000000000000000000000}
+      # Postgres (matches the db service above).
+      DATABASE_URL: postgresql://valam:valam_dev_password@db:5432/valam
+      # The browser origin(s) that may call this API. localhost:8080 = the
+      # frontend container below; 5173 = a local `npm run dev`.
+      CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+      ENVIRONMENT: development
+      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-base}
+      DEFAULT_VOICE_LANGUAGE: ta
+      # Safe with Postgres. Set to 1 if you switch this stack back to SQLite.
+      UVICORN_WORKERS: "2"
+      # Optional: real weather in the crop recommender. Without it that step
+      # degrades gracefully rather than failing.
+      WEATHER_API_KEY: ${WEATHER_API_KEY:-}
+    ports:
+      - "8000:8000"
+    # Persist generated TTS clips + rotating logs across restarts (optional).
+    volumes:
+      - backend-logs:/app/logs
+      - backend-voice:/app/app/static/voice_responses
+
+  # ---------------------------------------------------------------------------
+  # Frontend (built SPA served by nginx) at http://localhost:8080.
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the bundle; must be reachable FROM THE BROWSER, so it is
+        # the host-published backend port, not the compose-internal name.
+        VITE_API_BASE_URL: http://localhost:8000
+    image: valam-frontend:latest
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:
+  backend-logs:
+  backend-voice:

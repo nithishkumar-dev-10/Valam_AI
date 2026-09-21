@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from app.schemas.prediction import WeedPestOutput
@@ -6,6 +6,7 @@ from app.services.dl.deep_weed_service import deep_weed_service
 from app.validation import validate_image_upload
 from app.config import PREDICT_RATE_PER_MINUTE
 from app.rate_limiter import limiter
+from app.utils.logger import logger
 
 router = APIRouter(prefix="/predict", tags=["deep-weed"])
 
@@ -22,10 +23,18 @@ router = APIRouter(prefix="/predict", tags=["deep-weed"])
         415: {"description": "File is not a valid JPEG/PNG/WebP"},
         422: {"description": "Invalid input"},
         429: {"description": "Too many requests from this IP (25/minute)"},
+        503: {"description": "Deep-weed model unavailable (failed to load)"},
     },
 )
 @limiter.limit(PREDICT_RATE_PER_MINUTE)
 async def predict_deep_weed(request: Request, file: UploadFile = File(...)):
     image_bytes = await validate_image_upload(file)
-    class_name, confidence = await run_in_threadpool(deep_weed_service.predict, image_bytes)
+    try:
+        class_name, confidence = await run_in_threadpool(deep_weed_service.predict, image_bytes)
+    except RuntimeError:
+        logger.error("deep-weed model is not loaded — refusing deep-weed prediction")
+        raise HTTPException(
+            status_code=503,
+            detail="Deep-weed model is currently unavailable. Please try again later.",
+        )
     return WeedPestOutput(predicted_class=class_name, confidence=confidence)
