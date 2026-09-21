@@ -57,13 +57,35 @@ DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'valam.db'}")
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 
-# 7 days default access token (good mobile UX, avoids constant re-login).
-# Refresh tokens live 28 days; rotating via /auth/refresh.
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080"))
+# Short-lived access tokens (~15 min) keep a stolen access token's blast
+# radius tiny; the frontend silently refreshes on 401 via /auth/refresh.
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
+# Refresh tokens live 28 days but are ROTATED on every /auth/refresh and can be
+# revoked server-side (logout, reuse detection, account deletion) — see
+# app/auth/refresh_store.py.
 REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", "40320"))
 
+# The refresh token is delivered to the browser as an httpOnly cookie (NOT
+# localStorage) so injected JS can never read it. The access token stays out of
+# cookies entirely — it travels as `Authorization: Bearer` and lives in SPA
+# memory only.
+REFRESH_COOKIE_NAME = os.getenv("REFRESH_COOKIE_NAME", "refresh_token")
+# Scoped narrowly to auth endpoints — the cookie is never sent on other paths.
+REFRESH_COOKIE_PATH = "/api/v1/auth"
+# Secure=True is REQUIRED on the live site (HTTPS). Localhost is a secure
+# context (Chrome/Firefox treat it as such) so secure cookies still work over
+# http://localhost in dev. Set REFRESH_COOKIE_SECURE=false ONLY for non-TLS
+# LAN/emulator testing (http://192.168.x.x:8000) where the browser refuses.
+REFRESH_COOKIE_SECURE = os.getenv("REFRESH_COOKIE_SECURE", "true").lower() == "true"
+# SameSite=lax: api.valam.in and app.valam.in are different origins but the SAME
+# site, and browsers only send a SameSite=Lax cookie on same-site requests —
+# which is exactly our SPA->API traffic. It also blocks cross-site CSRF POSTs
+# (lax cookies are never sent on cross-site POST), so a rogue site cannot
+# trigger refresh/logout with a victim's cookie.
+REFRESH_COOKIE_SAMESITE = os.getenv("REFRESH_COOKIE_SAMESITE", "lax").lower()
+
 # Upload limits (MB) — enforced in app/validation.py BEFORE ML inference.
-MAX_IMAGE_UPLOAD_MB = int(os.getenv("MAX_IMAGE_UPLOAD_MB", "15"))
+MAX_IMAGE_UPLOAD_MB = int(os.getenv("MAX_IMAGE_UPLOAD_MB", "10"))
 MAX_AUDIO_UPLOAD_MB = int(os.getenv("MAX_AUDIO_UPLOAD_MB", "15"))
 # Longest accepted voice note (seconds). FFprobe reads just the header (no
 # decode) so a long low-bitrate clip can't force a multi-minute Whisper decode.
@@ -105,6 +127,16 @@ def validate_config():
         missing.append(
             "  SECRET_KEY — too short (must be ≥ 32 chars). Generate with: "
             'python -c "import secrets; print(secrets.token_urlsafe(64))"'
+        )
+    if ADMIN_ACCESS_KEY is not None and len(ADMIN_ACCESS_KEY) < 32:
+        missing.append(
+            "  ADMIN_ACCESS_KEY — too short (must be ≥ 32 chars). Generate with: "
+            'python -c "import secrets; print(secrets.token_urlsafe(64))"'
+        )
+    if REFRESH_COOKIE_SAMESITE not in ("lax", "strict", "none"):
+        missing.append(
+            "  REFRESH_COOKIE_SAMESITE — must be 'lax', 'strict' or 'none', "
+            f"got '{REFRESH_COOKIE_SAMESITE}'"
         )
     if missing:
         raise RuntimeError(

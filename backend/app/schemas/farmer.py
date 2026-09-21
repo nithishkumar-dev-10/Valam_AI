@@ -5,7 +5,7 @@ Pydantic schemas for signup/login request and response shapes.
 """
 
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class FarmerSignup(BaseModel):
@@ -13,7 +13,10 @@ class FarmerSignup(BaseModel):
 
     Phone number is the account identifier (IN format please — +91 optional).
     Password is bcrypt-hashed server-side; never stored or echoed in plaintext.
+    Unknown/misspelled JSON fields are rejected (extra="forbid").
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str = Field(
         ...,
@@ -50,6 +53,8 @@ class FarmerLogin(BaseModel):
     phone_number: str
     password: str
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class FarmerOut(BaseModel):
     """Public view of a farmer account. Deliberately excludes hashed_password."""
@@ -59,21 +64,21 @@ class FarmerOut(BaseModel):
     phone_number: str = Field(..., description="Login phone number.")
     created_at: datetime = Field(..., description="UTC timestamp of creation.")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):
-    """JWT pair returned by login/refresh. Values are opaque signed JWTs."""
+    """Login/refresh response body. Values are opaque signed JWTs.
+
+    The refresh token is NOT in this body — it is delivered as an httpOnly,
+    SameSite cookie scoped to /api/v1/auth (see app/auth/routers/auth.py), so
+    XSS-injected JS cannot read it. The access token is the only token the
+    client ever sees.
+    """
 
     access_token: str = Field(
         ...,
-        description="Short-lived access JWT (default 7 days). Send as `Authorization: Bearer <token>`.",
+        description="Short-lived access JWT (15 minutes). Send as `Authorization: Bearer <token>`. Hold in memory only — never localStorage.",
         examples=["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwidHlwIjoiYWNjZXNzIn0.example"],
-    )
-    refresh_token: str = Field(
-        "",
-        description="28-day refresh JWT. Post it to /auth/refresh to rotate. Never used as a Bearer token.",
-        examples=["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwidHlwIjoicmVmcmVzaCJ9.example"],
     )
     token_type: str = Field("bearer", description="Always `bearer`.")

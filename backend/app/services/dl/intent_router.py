@@ -153,8 +153,16 @@ async def route_query(
     Returns: {"intent": "crop", "response_text": "..."}
     """
     intent = detect_intent(text)
+    # Never log the raw transcript — transcribed voice can contain the farmer's
+    # name, village, phone number, family details (personal data). Log only the
+    # routing outcome and non-sensitive signals for debugging.
     logger.info(
-        f"Voice query routed to intent: {intent} | text: {text} | has_image: {image_bytes is not None}"
+        "Voice query routed to intent: %s | text_len=%d | language=%s | has_image=%s | has_location=%s",
+        intent,
+        len(text) if text else 0,
+        language,
+        image_bytes is not None,
+        latitude is not None and longitude is not None,
     )
 
     if intent == "crop":

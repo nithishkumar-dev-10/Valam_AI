@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 os.environ["SECRET_KEY"] = "a" * 64
-os.environ["ADMIN_ACCESS_KEY"] = "testadminkey123"
+os.environ["ADMIN_ACCESS_KEY"] = "testadminkey12345678901234567890abcdef"
 os.environ["CORS_ORIGINS"] = "http://localhost:5173"
 TEST_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "valam_audit_test.db")
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB}"

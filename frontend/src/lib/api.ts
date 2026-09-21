@@ -19,21 +19,20 @@ const BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"
 ).replace(/\/$/, "");
 
-const ACCESS_KEY = "valam.access";
-const REFRESH_KEY = "valam.refresh";
+// The refresh token NEVER touches JavaScript: it lives in an httpOnly + SameSite
+// cookie scoped to /api/v1/auth (set by the backend on login, rotated on every
+// /auth/refresh, cleared on logout). The access token is the only thing client
+// code holds, and only in memory — NOT localStorage — so injected JS can read
+// neither long-lived credential.
+let accessToken: string | null = null;
 
-export const getAccessToken = () => localStorage.getItem(ACCESS_KEY);
-export const getRefreshToken = () => localStorage.getItem(REFRESH_KEY);
-export const isAuthed = () => Boolean(getAccessToken());
-
-export function setTokens(pair: { access_token: string; refresh_token: string }) {
-  localStorage.setItem(ACCESS_KEY, pair.access_token);
-  localStorage.setItem(REFRESH_KEY, pair.refresh_token);
+export const getAccessToken = () => accessToken;
+export const isAuthed = () => Boolean(accessToken);
+export function setAccessToken(token: string) {
+  accessToken = token;
 }
-
-export function clearTokens() {
-  localStorage.removeItem(ACCESS_KEY);
-  localStorage.removeItem(REFRESH_KEY);
+export function clearAccessToken() {
+  accessToken = null;
 }
 
 interface RetriableRequestConfig extends InternalAxiosRequestConfig {
@@ -48,6 +47,10 @@ export function setUnauthorizedHandler(handler: () => void) {
 export const api = axios.create({
   baseURL: `${BASE_URL}/api/v1`,
   timeout: 150_000,
+  // With the refresh token in a cookie, every request must carry credentials
+  // so the cookie is sent — and the browser will store the Set-Cookie from
+  // login/refresh/logout responses (cross-origin it refuses without this).
+  withCredentials: true,
 });
 
 // Attach the bearer token to every request.
@@ -57,20 +60,21 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Single-flight refresh so concurrent 401s share one network call.
+// Single-flight refresh so concurrent 401s share one network call. The cookie
+// is sent automatically (withCredentials); no body is needed.
 let refreshPromise: Promise<void> | null = null;
 
 async function refreshSession(): Promise<void> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = axios
-    .post<TokenPair>(`${BASE_URL}/api/v1/auth/refresh`, {
-      refresh_token: getRefreshToken(),
+    .post<TokenPair>(`${BASE_URL}/api/v1/auth/refresh`, undefined, {
+      withCredentials: true,
     })
     .then(({ data }) => {
-      setTokens(data);
+      setAccessToken(data.access_token);
     })
     .catch((error: unknown) => {
-      clearTokens();
+      clearAccessToken();
       onUnauthorized();
       throw error;
     })
@@ -80,18 +84,22 @@ async function refreshSession(): Promise<void> {
   return refreshPromise;
 }
 
-// On 401: refresh once, retry the original request; otherwise bounce to auth.
+// Routes that must never trigger a 401 -> refresh -> retry loop (they ARE the
+// refresh machinery, or need the cookie/provider state to change first).
+const NO_REFRESH_RETRY = ["/auth/login", "/auth/refresh", "/auth/logout"];
+
+// On 401 (except the auth endpoints above): rotate the cookie-backed refresh
+// token once, retry the original request; otherwise bounce to the auth screen.
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const original = error.config as RetriableRequestConfig | undefined;
-    const isAuthRoute = original?.url?.includes("/auth/");
+    const isAuthRoute = NO_REFRESH_RETRY.some((p) => original?.url?.includes(p));
     const canRetry =
       error.response?.status === 401 &&
       original &&
       !original._retried &&
-      !isAuthRoute &&
-      Boolean(getRefreshToken());
+      !isAuthRoute;
 
     if (canRetry) {
       original._retried = true;
@@ -126,6 +134,12 @@ export const AuthAPI = {
     api.patch<FarmerOut>("/auth/me", { name }).then((r) => r.data),
 
   deleteMe: () => api.delete<void>("/auth/me"),
+
+  // Revokes the refresh token SERVER-SIDE and clears the httpOnly cookie (the
+  // cookie rides along automatically via withCredentials). Best-effort: the
+  // caller still clears the in-memory access token even if the call fails
+  // (offline logout must not leave the user stuck).
+  logout: () => api.post<void>("/auth/logout"),
 };
 
 export const CropAPI = {

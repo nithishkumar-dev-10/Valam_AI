@@ -1,7 +1,9 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SimpleCropInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     latitude: float = Field(
         ...,
         ge=6.0,
