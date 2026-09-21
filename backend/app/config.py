@@ -2,6 +2,14 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
+# Load backend/.env FIRST, before any os.getenv() below. Several settings
+# (WHISPER_MODEL_SIZE, DEFAULT_VOICE_LANGUAGE, VOICE_AUDIO_RETENTION_DAYS,
+# MAX_IMAGE_PIXELS) are read further down, so calling this late silently pinned
+# them to their defaults on the systemd deployment path, which relies on .env
+# (the unit has no EnvironmentFile=). Real process env still wins over .env
+# because load_dotenv() does not override existing variables.
+load_dotenv()
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 ML_MODELS_DIR = BASE_DIR / "app" / "ml_models"
 
@@ -26,8 +34,6 @@ LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "backend.log"
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "tiny")  # was "base"
 DEFAULT_VOICE_LANGUAGE = os.getenv("DEFAULT_VOICE_LANGUAGE", "ta")
-
-load_dotenv()
 
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 NOMINATIM_USER_AGENT = os.getenv(
