@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import { Checkmark } from "../components/Checkmark";
@@ -10,6 +11,7 @@ import { IconArrowRight, IconLeaf, IconSun } from "../components/Icons";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 import { apiErrorMessage, cn } from "../lib/utils";
+import { tValue } from "../lib/i18n";
 import { SPRING } from "../lib/motion";
 
 const PHONE_RE = /^\+?\d{10,15}$/;
@@ -30,6 +32,7 @@ export function AuthPage() {
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
 
   const [mode, setMode] = useState<Mode>("signin");
   const [phase, setPhase] = useState<Phase>("form");
@@ -46,13 +49,13 @@ export function AuthPage() {
   const submit = async () => {
     const e: Record<string, string> = {};
     const p = phone.trim();
-    if (!PHONE_RE.test(p)) e.phone = "Enter a 10–15 digit number, e.g. 9876543210.";
-    if (password.length < 6) e.password = "At least 6 characters.";
+    if (!PHONE_RE.test(p)) e.phone = t("auth.errPhone");
+    if (password.length < 6) e.password = t("auth.errPasswordShort");
     else if (!/[A-Za-z]/.test(password) || !/\d/.test(password))
-      e.password = "Use a mix of letters and digits.";
+      e.password = t("auth.errPasswordMix");
     if (mode === "signup") {
-      if (name.trim().length < 2) e.name = "At least 2 letters.";
-      if (password !== confirm) e.confirm = "Passwords don't match.";
+      if (name.trim().length < 2) e.name = t("auth.errName");
+      if (password !== confirm) e.confirm = t("auth.errConfirm");
     }
     setErrors(e);
     if (Object.keys(e).length > 0) return;
@@ -63,7 +66,7 @@ export function AuthPage() {
       if (mode === "signin") await signIn(p, password);
       else await signUp(name.trim(), p, password);
       setPhase("done");
-      toast.success(mode === "signin" ? "Welcome back!" : "Account created — welcome aboard");
+      toast.success(mode === "signin" ? t("auth.toastSignin") : t("auth.toastSignup"));
       window.setTimeout(() => navigate(from, { replace: true }), 1050);
     } catch (err) {
       setPhase("form");
@@ -73,7 +76,7 @@ export function AuthPage() {
       } else if (/exist/i.test(msg)) {
         setErrors((prev) => ({ ...prev, phone: msg }));
       } else {
-        toast.error("Couldn't continue", msg);
+        toast.error(t("auth.errGeneric"), tValue(msg));
       }
     }
   };
@@ -97,9 +100,9 @@ export function AuthPage() {
                 <Checkmark size={96} />
               </div>
               <p className="font-display mt-6 text-2xl font-semibold text-pine-900">
-                You&apos;re in.
+                {t("auth.done")}
               </p>
-              <p className="mt-1 text-sm text-sage">Taking you to the farm…</p>
+              <p className="mt-1 text-sm text-sage">{t("auth.doneSub")}</p>
             </motion.div>
           ) : (
             <motion.form
@@ -118,8 +121,8 @@ export function AuthPage() {
               <Segmented<Mode>
                 id="auth"
                 options={[
-                  { value: "signin", label: "Sign in" },
-                  { value: "signup", label: "Create account" },
+                  { value: "signin", label: t("auth.segSignin") },
+                  { value: "signup", label: t("auth.segSignup") },
                 ]}
                 value={mode}
                 onChange={setMode}
@@ -127,49 +130,47 @@ export function AuthPage() {
               />
 
               <h1 className="font-display mt-6 text-[26px] font-semibold text-pine-900">
-                {mode === "signin" ? "Welcome back to the field" : "Join the field squad"}
+                {mode === "signin" ? t("auth.titleSignin") : t("auth.titleSignup")}
               </h1>
               <p className="mt-1 text-[13.5px] text-sage">
-                {mode === "signin"
-                  ? "Sign in with the phone number you registered."
-                  : "A quick account keeps your preferences — voice queries work without one anyway."}
+                {mode === "signin" ? t("auth.subSignin") : t("auth.subSignup")}
               </p>
 
               <div className="mt-6 space-y-4">
                 {mode === "signup" && (
                   <Field
-                    label="Your name"
+                    label={t("auth.yourName")}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Rani Krishnan"
+                    placeholder={t("auth.namePlaceholder")}
                     autoComplete="name"
                     error={errors.name ?? null}
                   />
                 )}
                 <Field
-                  label="Phone number"
+                  label={t("auth.phone")}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="98765 43210"
+                  placeholder={t("auth.phonePlaceholder")}
                   inputMode="tel"
                   autoComplete="tel"
                   error={errors.phone ?? null}
                 />
                 <Field
-                  label="Password"
+                  label={t("auth.password")}
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   autoComplete={mode === "signin" ? "current-password" : "new-password"}
                   error={errors.password ?? null}
-                  hint={mode === "signup" ? "6+ characters with letters and digits." : undefined}
+                  hint={mode === "signup" ? t("auth.passwordHint") : undefined}
                 />
                 {mode === "signup" && (
                   <>
                     <PasswordStrength password={password} />
                     <Field
-                      label="Confirm password"
+                      label={t("auth.confirm")}
                       type="password"
                       value={confirm}
                       onChange={(e) => setConfirm(e.target.value)}
@@ -187,7 +188,7 @@ export function AuthPage() {
                 loading={phase === "submitting"}
                 className="mt-6"
               >
-                {mode === "signin" ? "Sign in" : "Create account"}
+                {mode === "signin" ? t("auth.submitSignin") : t("auth.submitSignup")}
                 {phase !== "submitting" && <IconArrowRight className="h-4 w-4" />}
               </Button>
 
@@ -200,8 +201,8 @@ export function AuthPage() {
                 className="mx-auto mt-5 block text-[13px] font-medium text-pine-700 underline-offset-4 transition-colors hover:text-pine-900 hover:underline"
               >
                 {mode === "signin"
-                  ? "New here? Create a free account"
-                  : "Already have an account? Sign in"}
+                  ? t("auth.switchToSignup")
+                  : t("auth.switchToSignin")}
               </button>
             </motion.form>
           )}
@@ -212,9 +213,10 @@ export function AuthPage() {
 }
 
 function PasswordStrength({ password }: { password: string }) {
+  const { t } = useTranslation();
   const score = strength(password);
   const colors = ["bg-mist", "bg-clay-400", "bg-honey-400", "bg-leaf-400", "bg-leaf-500"];
-  const labels = ["", "Weak", "Okay", "Good", "Strong"];
+  const labels = ["", t("auth.strength.weak"), t("auth.strength.okay"), t("auth.strength.good"), t("auth.strength.strong")];
   return (
     <div className="pb-1">
       <div className="flex gap-1.5">
@@ -241,6 +243,7 @@ function PasswordStrength({ password }: { password: string }) {
 }
 
 function BrandPanel() {
+  const { t } = useTranslation();
   return (
     <div className="relative hidden min-h-[420px] overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-pine-900 via-pine-800 to-leaf-800 p-10 text-paper shadow-lift lg:flex lg:flex-col lg:justify-between">
       <div className="pointer-events-none absolute inset-0" aria-hidden="true">
@@ -260,16 +263,15 @@ function BrandPanel() {
         </motion.div>
       </div>
 
-      <p className="font-display relative z-10 text-[15px] italic text-leaf-200/80">வணக்கம்</p>
+      <p className="font-display relative z-10 text-[15px] italic text-leaf-200/80">{t("auth.brandPanel.hello")}</p>
       <div className="relative z-10">
         <h2 className="font-display text-3xl font-semibold leading-tight">
-          Advice that speaks
+          {t("auth.brandPanel.heading1")}
           <br />
-          your farmer&apos;s language.
+          {t("auth.brandPanel.heading2")}
         </h2>
         <p className="mt-3 max-w-sm text-[14px] leading-relaxed text-pine-100/80">
-          Crop, disease and pest answers — with real data behind every recommendation,
-          in Tamil or English.
+          {t("auth.brandPanel.subtitle")}
         </p>
       </div>
     </div>

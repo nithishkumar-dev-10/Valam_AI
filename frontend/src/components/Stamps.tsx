@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { IconAlert, IconShield } from "./Icons";
 import { cn, confidenceTone } from "../lib/utils";
+import { tValue } from "../lib/i18n";
 import { fadeUp } from "../lib/motion";
 
 const TONES: Record<string, string> = {
@@ -28,7 +29,7 @@ export function Stamp({ label, tone = "sage", className }: { label: string; tone
 export function ConfidenceStamp({ label }: { label?: string | null }) {
   if (!label) return null;
   const tone = confidenceTone(label);
-  return <Stamp label={label} tone={tone} />;
+  return <Stamp label={tValue(label)} tone={tone} />;
 }
 
 export function WarningBanner({ message }: { message?: string | null }) {
@@ -56,7 +57,7 @@ export function DataNote({ note }: { note?: string | null }) {
       className="flex items-start gap-2.5 border-t border-mist pt-3"
     >
       <IconShield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sage" />
-      <p className="text-[12.5px] leading-relaxed text-sage">{note}</p>
+      <p className="text-[12.5px] leading-relaxed text-sage">{tValue(note)}</p>
     </motion.div>
   );
 }

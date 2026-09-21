@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import type { CropOutput, DiseaseOutput, ModelResult, WeedPestOutput } from "../types";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { ProgressRing } from "./ProgressRing";
 import { ConfidenceStamp, DataNote, Stamp, WarningBanner } from "./Stamps";
 import { IconLeaf, IconMapPin, IconPause, IconPlay } from "./Icons";
-import { cn, prettifyClass, prettifyCrop } from "../lib/utils";
+import { cn } from "../lib/utils";
+import { tValue } from "../lib/i18n";
 import { fadeUp } from "../lib/motion";
 
 // ---- typewriter (used for transcription + the spoken answer) ----
@@ -82,6 +84,7 @@ export function ConfidenceRing({
 // ---- crop result card ----
 
 export function CropCard({ result }: { result: CropOutput }) {
+  const { t } = useTranslation();
   return (
     <motion.div
       variants={fadeUp}
@@ -97,18 +100,18 @@ export function CropCard({ result }: { result: CropOutput }) {
             transition={{ delay: 0.3 }}
             className="text-[12px] font-semibold uppercase tracking-[0.14em] text-sage"
           >
-            Suggested crop
+            {t("results.suggestedCrop")}
           </motion.p>
           <h3 className="font-display mt-1.5 text-3xl font-semibold text-pine-900">
-            {prettifyCrop(result.predicted_crop)}
+            {tValue(result.predicted_crop)}
           </h3>
           <p className="mt-2 flex items-center justify-center gap-1.5 text-[13px] text-sage sm:justify-start">
             <IconMapPin className="h-3.5 w-3.5" />
             {result.location || "—"}
           </p>
           <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
-            <Stamp label={result.data_resolution} tone="leaf" />
-            <Stamp label={result.soil_source} tone="pine" />
+            <Stamp label={tValue(result.data_resolution)} tone="leaf" />
+            <Stamp label={tValue(result.soil_source)} tone="pine" />
           </div>
         </div>
         <ConfidenceRing confidence={result.confidence} label={result.confidence_label} />
@@ -116,10 +119,10 @@ export function CropCard({ result }: { result: CropOutput }) {
 
       <div className="mt-6 space-y-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <MiniStat k="Soil source" v={result.soil_source} />
-          <MiniStat k="Weather source" v={result.weather_source} />
-          <MiniStat k="Input confidence" v={result.input_confidence ?? "—"} />
-          <MiniStat k="Data resolution" v={result.data_resolution} />
+          <MiniStat k={t("results.soilSource")} v={tValue(result.soil_source)} />
+          <MiniStat k={t("results.weatherSource")} v={tValue(result.weather_source)} />
+          <MiniStat k={t("results.inputConfidence")} v={tValue(result.input_confidence ?? "—")} />
+          <MiniStat k={t("results.dataResolution")} v={tValue(result.data_resolution)} />
         </div>
         <WarningBanner message={result.warning} />
         <DataNote note={result.data_quality_note} />
@@ -135,8 +138,9 @@ export function DetectCard({
   kind,
 }: {
   result: DiseaseOutput | WeedPestOutput;
-  kind: "disease" | "pest";
+  kind: "disease" | "weed" | "pest";
 }) {
+  const { t } = useTranslation();
   return (
     <motion.div
       variants={fadeUp}
@@ -152,17 +156,17 @@ export function DetectCard({
             transition={{ delay: 0.3 }}
             className="text-[12px] font-semibold uppercase tracking-[0.14em] text-sage"
           >
-            {kind === "disease" ? "Most likely condition" : "Identified pest / weed"}
+            {kind === "disease" ? t("results.mostLikely") : t("results.identifiedPest")}
           </motion.p>
           <h3 className="font-display mt-1.5 text-[26px] font-semibold leading-tight text-pine-900">
-            {prettifyClass(result.predicted_class)}
+            {tValue(result.predicted_class)}
           </h3>
           <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
             <Stamp
-              label={result.confidence >= 0.7 ? "confident" : result.confidence >= 0.45 ? "moderate" : "uncertain"}
+              label={tValue(result.confidence >= 0.7 ? "confident" : result.confidence >= 0.45 ? "moderate" : "uncertain")}
               tone={result.confidence >= 0.7 ? "leaf" : result.confidence >= 0.45 ? "honey" : "clay"}
             />
-            <Stamp label={kind === "disease" ? "plant village model" : "deep weed model"} tone="pine" />
+            <Stamp label={kind === "disease" ? t("results.plantVillage") : t("results.deepWeed")} tone="pine" />
           </div>
         </div>
         <ConfidenceRing confidence={result.confidence} size={150} />
@@ -184,6 +188,7 @@ export function ModelRow({ label, value }: { label: string; value: string | null
 }
 
 export function VoiceResultCard({ model, result }: { model: string; result: ModelResult }) {
+  const { t } = useTranslation();
   const confidence = Number(result.confidence ?? 0);
   const label = result.confidence_label as string | undefined;
   return (
@@ -199,11 +204,11 @@ export function VoiceResultCard({ model, result }: { model: string; result: Mode
           {model}
         </span>
         <p className="font-display mt-1 truncate text-lg font-semibold text-pine-900">
-          {prettifyCrop(String(result.predicted_crop ?? result.predicted_class ?? "—"))}
+          {tValue(String(result.predicted_crop ?? result.predicted_class ?? "—"))}
         </p>
         <div className="mt-2 space-y-0.5">
-          <ModelRow label="Location" value={result.location ?? null} />
-          <ModelRow label="Data" value={result.data_resolution ?? null} />
+          <ModelRow label={t("results.location")} value={result.location ?? null} />
+          <ModelRow label={t("results.data")} value={tValue(result.data_resolution ?? null) ?? null} />
         </div>
       </div>
     </motion.div>
@@ -229,6 +234,7 @@ export function AudioBar({ url }: { url: string }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const { t } = useTranslation();
 
   useEffect(() => {
     const audio = new Audio(url);
@@ -265,7 +271,7 @@ export function AudioBar({ url }: { url: string }) {
       <button
         type="button"
         onClick={toggle}
-        aria-label={playing ? "Pause audio reply" : "Play audio reply"}
+        aria-label={playing ? t("audioBar.pauseAria") : t("audioBar.playAria")}
         className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-pine-700 to-leaf-600 text-paper shadow-card transition-transform duration-150 hover:scale-105 active:scale-95"
       >
         {playing ? <IconPause className="h-5 w-5" /> : <IconPlay className="h-5 w-5" />}

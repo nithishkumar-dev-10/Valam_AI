@@ -1,3 +1,5 @@
+import i18n from "./i18n";
+
 export function cn(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
 }
@@ -86,14 +88,14 @@ export function apiErrorMessage(err: unknown): string {
       }
     }
     const status = (err as { response: { status?: number } }).response.status;
-    if (status === 500) return "The server hit a snag. Please try again.";
-    if (status === 429) return "Too many attempts — wait a moment and retry.";
-    if (status === 404) return "That didn't exist on the server.";
-    if (status === 401) return "Your session expired. Please sign in again.";
+    if (status === 500) return i18n.t("errors.api500");
+    if (status === 429) return i18n.t("errors.api429");
+    if (status === 404) return i18n.t("errors.api404");
+    if (status === 401) return i18n.t("errors.api401");
   }
   if (err instanceof Error && (err.message === "Network Error" || (err as Error & { code?: string }).code === "ERR_NETWORK")) {
-    return "Can't reach the server. Check that the backend is running.";
+    return i18n.t("errors.network");
   }
   if (err instanceof Error) return err.message;
-  return "Something went wrong. Please try again.";
+  return i18n.t("errors.generic");
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import {
   BrandMark,
   IconHome,
@@ -12,33 +13,28 @@ import {
 import { useAuth } from "../lib/auth";
 import { HealthAPI } from "../lib/api";
 import { cn } from "../lib/utils";
-import { page, SPRING } from "../lib/motion";
-import type { VoiceLang } from "../types";
-
-const NAV = [
-  { to: "/", label: "Home", Icon: IconHome, end: true },
-  { to: "/crop", label: "Crops", Icon: IconSprout, end: false },
-  { to: "/voice", label: "Voice", Icon: null, end: false, center: true },
-  { to: "/scan", label: "Scan", Icon: IconScan, end: false },
-  { to: "/profile", label: "My", Icon: IconUser, end: false },
-];
-
-const DESKTOP_NAV = NAV.filter((n) => !n.center);
+import { SPRING } from "../lib/motion";
+import { getAppLang, setAppLang } from "../lib/i18n";
+import type { AppLang } from "../lib/i18n";
 
 export function Shell() {
+  const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
   const { status, farmer } = useAuth();
   const [health, setHealth] = useState<boolean | null>(null);
 
-  // Route-aware lang toggle for the voice output.
-  const [lang, setLang] = useState<VoiceLang>(
-    () => (localStorage.getItem("valam.lang") as VoiceLang) || "ta",
-  );
+  const lang = getAppLang();
 
-  useEffect(() => {
-    localStorage.setItem("valam.lang", lang);
-  }, [lang]);
+  const NAV = [
+    { to: "/", label: t("nav.home"), Icon: IconHome, end: true },
+    { to: "/crop", label: t("nav.crops"), Icon: IconSprout, end: false },
+    { to: "/voice", label: t("nav.voice"), Icon: null, end: false, center: true },
+    { to: "/scan", label: t("nav.scan"), Icon: IconScan, end: false },
+    { to: "/profile", label: t("nav.my"), Icon: IconUser, end: false },
+  ];
+
+  const DESKTOP_NAV = NAV.filter((n) => !n.center);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
@@ -68,7 +64,7 @@ export function Shell() {
         <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-4 sm:px-6">
           <Wordmark />
 
-          <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">
+          <nav className="hidden items-center gap-1 md:flex" aria-label={t("nav.topBanner")}>
             {DESKTOP_NAV.map(({ to, label, end }) => (
               <NavLink
                 key={to}
@@ -98,14 +94,20 @@ export function Shell() {
                     ? "bg-leaf-500 text-leaf-500"
                     : "bg-clay-500 text-clay-500",
               )}
-              title={health === null ? "Checking service…" : health ? "All systems live" : "Backend unreachable"}
+              title={
+                health === null
+                  ? t("nav.healthNull")
+                  : health
+                    ? t("nav.healthOk")
+                    : t("nav.healthDown")
+              }
             />
-            <LangToggle value={lang} onChange={setLang} />
+            <LangToggle value={lang} onChange={setAppLang} />
             {status === "authed" && farmer ? (
               <Link
                 to="/profile"
                 className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-pine-700 to-leaf-600 text-sm font-bold text-paper shadow-card transition-transform duration-200 hover:-rotate-3"
-                aria-label="Open profile"
+                aria-label={t("nav.profileAria")}
               >
                 {(farmer.name || "?").charAt(0).toUpperCase()}
               </Link>
@@ -118,7 +120,7 @@ export function Shell() {
                 transition={{ duration: 0.15, ease: SPRING }}
                 className="hidden rounded-full bg-gradient-to-br from-pine-700 to-leaf-600 px-4 py-2 text-sm font-semibold text-paper shadow-card sm:inline-flex"
               >
-                Sign in
+                {t("nav.signIn")}
               </motion.button>
             )}
           </div>
@@ -126,17 +128,14 @@ export function Shell() {
       </header>
 
       <main className="mx-auto w-full max-w-5xl px-4 pb-32 pt-6 sm:px-6 lg:pb-20">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={location.pathname}
-            variants={page}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-          >
-            <Outlet />
-          </motion.div>
-        </AnimatePresence>
+        <motion.div
+          key={location.pathname}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.26, ease: SPRING }}
+        >
+          <Outlet />
+        </motion.div>
       </main>
 
       <BottomNav />
@@ -158,18 +157,20 @@ function Wordmark() {
   );
 }
 
-function LangToggle({ value, onChange }: { value: VoiceLang; onChange: (l: VoiceLang) => void }) {
+function LangToggle({ value, onChange }: { value: AppLang; onChange: (l: AppLang) => void }) {
+  const { t } = useTranslation();
   return (
     <div
       className="flex rounded-full border border-mist bg-surface p-0.5 shadow-edge"
       role="group"
-      aria-label="Assistant language"
+      aria-label={t("nav.langAria")}
     >
       {(["en", "ta"] as const).map((l) => (
         <button
           key={l}
           type="button"
           onClick={() => onChange(l)}
+          aria-pressed={value === l}
           className={cn(
             "relative rounded-full px-2.5 py-1 text-[11.5px] font-semibold transition-colors duration-200",
             value === l ? "text-paper" : "text-sage hover:text-pine-800",
@@ -191,10 +192,18 @@ function LangToggle({ value, onChange }: { value: VoiceLang; onChange: (l: Voice
 
 function BottomNav() {
   const location = useLocation();
+  const { t } = useTranslation();
+  const NAV = [
+    { to: "/", label: t("nav.home"), Icon: IconHome, end: true },
+    { to: "/crop", label: t("nav.crops"), Icon: IconSprout, end: false },
+    { to: "/voice", label: t("nav.voice"), Icon: null, end: false, center: true },
+    { to: "/scan", label: t("nav.scan"), Icon: IconScan, end: false },
+    { to: "/profile", label: t("nav.my"), Icon: IconUser, end: false },
+  ];
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-50 border-t border-mist bg-paper/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
-      aria-label="Primary"
+      aria-label={t("nav.topBanner")}
     >
       <div className="mx-auto flex h-16 max-w-md items-end justify-between px-2">
         {NAV.map(({ to, label, Icon, end, center }) => {
@@ -205,7 +214,7 @@ function BottomNav() {
               <div key={to} className="relative flex w-1/5 justify-center">
                 <Link
                   to={to}
-                  aria-label="Voice assistant"
+                  aria-label={t("nav.voiceAria")}
                   className="grid h-14 w-14 -translate-y-3.5 place-items-center rounded-full bg-gradient-to-br from-pine-700 via-pine-600 to-leaf-600 text-paper shadow-lift"
                 >
                   <IconMic className="h-6 w-6" />
@@ -218,6 +227,7 @@ function BottomNav() {
             <Link
               key={to}
               to={to}
+              aria-label={label}
               className="relative flex w-1/5 flex-col items-center gap-0.5 py-2"
             >
               {active && (

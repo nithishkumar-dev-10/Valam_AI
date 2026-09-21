@@ -150,9 +150,16 @@ export const PredictAPI = {
       })
       .then((r) => r.data),
 
-  pest: (file: File) =>
+  weed: (file: File) =>
     api
       .post<WeedPestOutput>("/predict/deep-weed", imageForm(file, "file", file.name), {
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data),
+
+  pest: (file: File) =>
+    api
+      .post<WeedPestOutput>("/predict/pest", imageForm(file, "file", file.name), {
         headers: { "Content-Type": "multipart/form-data" },
       })
       .then((r) => r.data),

@@ -1,9 +1,10 @@
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { IconMic } from "./Icons";
 import { cn } from "../lib/utils";
 import { SPRING } from "../lib/motion";
 
-export type MicState = "idle" | "listening" | "processing";
+export type MicState = "idle" | "starting" | "listening" | "processing";
 
 const BARS = [0.4, 0.9, 0.55, 1, 0.7, 1, 0.5, 0.85];
 
@@ -18,8 +19,15 @@ export function MicButton({
   onPress: () => void;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const label =
-    state === "listening" ? "Tap to stop" : state === "processing" ? "Working…" : "Tap and speak";
+    state === "starting"
+      ? t("mic.starting")
+      : state === "listening"
+        ? t("mic.tapToStop")
+        : state === "processing"
+          ? t("mic.working")
+          : t("mic.tapAndSpeak");
 
   return (
     <div className={cn("relative grid place-items-center", className)}>
@@ -51,7 +59,7 @@ export function MicButton({
         </div>
       )}
 
-      {state === "processing" && (
+      {(state === "starting" || state === "processing") && (
         <motion.span
           className="absolute h-24 w-24 rounded-full border-2 border-leaf-300 border-t-leaf-600"
           animate={{ rotate: 360 }}
@@ -80,7 +88,7 @@ export function MicButton({
         className={cn(
           "grid h-28 w-28 place-items-center rounded-full shadow-lift transition-colors duration-300",
           state === "idle" && "bg-gradient-to-br from-pine-700 to-leaf-600 text-paper",
-          state === "listening" && "bg-leaf-600 text-paper",
+          (state === "starting" || state === "listening") && "bg-leaf-600 text-paper",
           state === "processing" && "bg-paper text-leaf-600 border-2 border-leaf-300",
         )}
       >
@@ -88,7 +96,7 @@ export function MicButton({
       </motion.button>
 
       <p className="mt-4 text-sm font-medium text-pine-800">
-        {state === "listening" ? "Listening… speak now" : label}
+        {state === "listening" ? t("mic.listening") : label}
       </p>
     </div>
   );
