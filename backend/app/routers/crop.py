@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from app.utils.logger import logger
 
@@ -35,7 +35,10 @@ class ManualCropInput(BaseModel):
     """
     Direct override inputs — bypasses geocoding and soil lookup entirely.
     Soil values are treated as measured (Soil Health Card style).
+    Unknown JSON fields are rejected (extra="forbid").
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     N: float = Field(..., ge=0)
     P: float = Field(..., ge=0)

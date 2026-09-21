@@ -17,9 +17,11 @@ def _tiny_png(size: int = 20) -> bytes:
 
 
 def _api_paths(client) -> set[str]:
-    return {
-        r.path for r in client.app.routes if getattr(r, "path", "").startswith("/api")
-    }
+    """The API surface clients can actually hit. Starlette 1.x represents
+    included routers as opaque _IncludedRouter objects (no public '.path'
+    on them), so introspecting app.routes directly is brittle — the OpenAPI
+    schema is the canonical, prefix-resolved public contract instead."""
+    return set(client.app.openapi()["paths"].keys())
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +175,10 @@ def test_admin_wrong_key_forbidden(client):
 
 
 def test_admin_right_key_ok(client):
-    r = client.get("/api/v1/admin/logs", headers={"X-Admin-Key": "testadminkey123"})
+    r = client.get(
+        "/api/v1/admin/logs",
+        headers={"X-Admin-Key": "testadminkey12345678901234567890abcdef"},
+    )
     assert r.status_code == 200, r.text
 
 

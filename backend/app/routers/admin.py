@@ -14,11 +14,17 @@ import re
 import secrets
 from collections import deque
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 
 from app.config import ADMIN_ACCESS_KEY, LOG_FILE
+from app.rate_limiter import limiter
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+
+# Brute-force guard on the admin surface itself (separate from the per-user
+# endpoints): even with a strong key, an open unthrottled endpoint invites
+# endless probes. 20/min is plenty for tail-logging by hand.
+ADMIN_RATE_PER_MINUTE = "20/minute"
 
 _valid_level_re = re.compile(r"^(DEBUG|INFO|WARN|ERROR|CRITICAL)$", re.IGNORECASE)
 
@@ -35,12 +41,18 @@ def _require_admin(x_admin_key: str):
     summary="Read recent backend log lines",
     description=(
         "Returns the most recent log lines from `backend/logs/backend.log`.\n\n"
-        "Requires the `X-Admin-Key` header. If `ADMIN_ACCESS_KEY` is unset on "
-        "the server the endpoint does not exist (`404`)."
+        "Requires the `X-Admin-Key` header (constant-time compared, ≥32 chars). "
+        "If `ADMIN_ACCESS_KEY` is unset on the server the endpoint does not "
+        "exist (`404`). Rate-limited to 20 requests/minute per IP."
     ),
-    responses={403: {"description": "Missing/wrong X-Admin-Key"}},
+    responses={
+        403: {"description": "Missing/wrong X-Admin-Key"},
+        429: {"description": "Too many requests from this IP (20/minute)"},
+    },
 )
+@limiter.limit(ADMIN_RATE_PER_MINUTE)
 def read_logs(
+    request: Request,
     x_admin_key: str = Header(..., description="Must match ADMIN_ACCESS_KEY env var on the server"),
     lines: int = Query(100, ge=1, le=2000, description="Number of tail lines to return"),
     level: str | None = Query(

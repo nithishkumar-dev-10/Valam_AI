@@ -3,6 +3,15 @@ app/validation.py
 
 Central upload validators — called BEFORE anything touches ML inference.
 Returns validated bytes so callers can skip a redundant read.
+
+Images are RE-ENCODED here, server-side, to a clean JPEG:
+
+  * any embedded metadata (EXIF incl. GPS, XMP, thumbnails) is stripped —
+    farmer field photos can carry precise GPS coordinates;
+  * polyglot payloads (valid image + appended junk/JS) are discarded — only
+    the decoded pixels survive re-encode;
+  * EXIF orientation is applied first, so rotated phone photos still classify
+    as upright (then the EXIF itself is dropped).
 """
 
 import asyncio
@@ -11,7 +20,7 @@ import logging
 import tempfile
 
 from fastapi import UploadFile, HTTPException
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.config import (
     MAX_IMAGE_UPLOAD_MB,
@@ -120,6 +129,30 @@ async def validate_image_upload(file: UploadFile) -> bytes:
         raise HTTPException(
             status_code=415,
             detail="Image dimensions exceed the allowed limit.",
+        )
+
+    # Re-encode to a clean JPEG: applies EXIF orientation, then discards ALL
+    # metadata (GPS/EXIF/XMP thumbnails) and any trailing polyglot payload.
+    # ML inference below only ever reads sanitized pixels, never raw uploads.
+    try:
+        img = Image.open(io.BytesIO(data))
+        img = ImageOps.exif_transpose(img).convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=90)
+        if buf.getvalue():
+            data = buf.getvalue()
+        else:
+            raise HTTPException(
+                status_code=415,
+                detail="File could not be re-encoded for safe processing.",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.warning("PIL failed to re-encode uploaded image (magic passed)")
+        raise HTTPException(
+            status_code=415,
+            detail="File could not be decoded as an image.",
         )
 
     return data

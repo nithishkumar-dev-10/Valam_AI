@@ -26,7 +26,7 @@ from slowapi.errors import RateLimitExceeded
 import sqlalchemy
 
 from app.database import Base, engine
-from app.models import farmer  # noqa: F401 -- registers the model before create_all
+from app.models import Farmer, RefreshToken  # noqa: F401 -- registers models before create_all
 from app.routers import crop, disease, deep_weed, voice, auth, pest, admin
 from app.config import (
     STATIC_DIR,
@@ -38,7 +38,7 @@ from app.config import (
     ENVIRONMENT,
 )
 from app.rate_limiter import limiter
-from app.middleware import AccessLogMiddleware
+from app.middleware import AccessLogMiddleware, SecurityHeadersMiddleware, BodySizeLimitMiddleware
 from app.services.dl.voice_service import voice_service
 
 logger = logging.getLogger("valam_ai.main")
@@ -140,8 +140,10 @@ with a built-for-voice summary **and** a playable TTS audio clip.
 
 * Read / docs / `voice` callers work **anonymously**.
 * Optional accounts via phone + password; `POST /auth/login` returns a short-lived
-  access JWT and a 28-day refresh JWT. Mobile apps should refresh silently
-  (see `POST /auth/refresh`) and only re-prompt when the refresh fails.
+  access JWT (15 min) in the body and sets the **rotating, server-revocable**
+  refresh JWT as an **httpOnly cookie** scoped to `/api/v1/auth`. Mobile apps
+  should refresh silently via `POST /auth/refresh` (each call rotates the cookie
+  backend-side) and only re-prompt when the refresh fails.
 
 ## Deployment notes
 
@@ -201,15 +203,26 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
 # eventual Flutter app) talking to this API over HTTP. Origins come from the
 # env-driven CORS_ORIGINS (comma-separated); localhost values are dev-only
 # defaults that production .env replaces.
+#
+# allow_credentials=True is REQUIRED now that the refresh token lives in an
+# httpOnly cookie: the SPA's cross-origin fetch must carry credentials for the
+# cookie to be stored/sent, and the browser rejects credentialed requests when
+# allow_origins is "*". It stays an explicit allowlist (never a wildcard).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Admin-Key"],
 )
 
+# Defence-in-depth response headers for everything this service emits.
+app.add_middleware(SecurityHeadersMiddleware)
+
 app.add_middleware(AccessLogMiddleware)
+
+# JSON-body size guard (multipart upload limits live in validation.py).
+app.add_middleware(BodySizeLimitMiddleware)
 
 # Serves app/static/** at /static/** so audio files, etc. are fetchable
 # over HTTP instead of only existing as a local filesystem path. Intentionally
