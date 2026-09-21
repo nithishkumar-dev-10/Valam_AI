@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { Button } from "../components/Button";
-import { Segmented } from "../components/Segmented";
 import { UploadDropzone } from "../components/UploadDropzone";
 import { MicButton } from "../components/MicButton";
 import {
@@ -12,39 +12,23 @@ import {
   VoiceResultCard,
 } from "../components/ResultViews";
 import { IconAlert, IconMapPin, IconSparkle, IconX } from "../components/Icons";
-import type { UnifiedVoiceResponse, VoiceLang } from "../types";
+import type { UnifiedVoiceResponse } from "../types";
 import { VoiceAPI } from "../lib/api";
-import { isRecordingSupported, startRecording } from "../lib/audio";
-import type { Recorder } from "../lib/audio";
+import { useVoiceRecorder } from "../lib/useVoiceRecorder";
 import { getPosition, coordsInIndia } from "../lib/geo";
 import { useToast } from "../lib/toast";
 import { apiErrorMessage, fmtNumber } from "../lib/utils";
+import { getAppLang, tValue } from "../lib/i18n";
 import { fadeUp, staggerParent, SPRING } from "../lib/motion";
-
-type RecState = "idle" | "listening" | "processing";
-
-const PROGRESS = [
-  "Transcribing your voice…",
-  "Working out what you need…",
-  "Checking field data…",
-  "Writing your answer…",
-];
-
-const INTENT_LABEL: Record<string, string> = {
-  crop: "Crop suggestion",
-  disease: "Disease check",
-  pest: "Pest check",
-  answer: "Direct answer",
-  unknown: "General",
-};
 
 export function VoicePage() {
   const toast = useToast();
-  const [lang, setLang] = useState<VoiceLang>(
-    () => (localStorage.getItem("valam.lang") as VoiceLang) || "ta",
-  );
-  const [recState, setRecState] = useState<RecState>("idle");
-  const recorderRef = useRef<Recorder | null>(null);
+  const { t } = useTranslation();
+  const lang = getAppLang();
+  const { recState, setRecState, micTap, resetRecorder } = useVoiceRecorder((blob) => {
+    setAudioBlob(blob);
+    return submit({ audio: blob });
+  });
 
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -56,49 +40,15 @@ export function VoicePage() {
   const [error, setError] = useState<string | null>(null);
   const tickerRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    localStorage.setItem("valam.lang", lang);
-  }, [lang]);
+  const PROGRESS: string[] = t("voice.progress", { returnObjects: true }) as unknown as string[];
+
+  const intentLabel = (intent?: string): string => t(`voice.intent.${intent ?? "unknown"}` as const);
 
   useEffect(() => {
     return () => {
       if (tickerRef.current !== null) window.clearInterval(tickerRef.current);
-      recorderRef.current?.cancel();
     };
   }, []);
-
-  const micTap = async () => {
-    if (!isRecordingSupported()) {
-      toast.error(
-        "Voice recording isn't supported here",
-        "You can still add a photo or your location and ask that way.",
-      );
-      return;
-    }
-    if (recState === "listening") {
-      const recorder = recorderRef.current;
-      if (!recorder) return;
-      const blob = await recorder.stop();
-      recorderRef.current = null;
-      if (blob.size < 1200) {
-        toast.info("That was too short", "Tap the mic again and speak a little longer.");
-        setRecState("idle");
-        return;
-      }
-      setAudioBlob(blob);
-      await submit({ audio: blob });
-      return;
-    }
-    try {
-      recorderRef.current = await startRecording();
-      setRecState("listening");
-    } catch {
-      toast.error(
-        "Mic permission denied",
-        "Allow microphone access, or use a photo / location instead.",
-      );
-    }
-  };
 
   const submit = async (overrides?: { audio?: Blob }) => {
     const audio = overrides?.audio ?? audioBlob ?? undefined;
@@ -106,7 +56,7 @@ export function VoicePage() {
     const inputs = { audio, image, latitude: coords?.latitude, longitude: coords?.longitude, lang };
 
     if (!audio && !imageFile && !coords) {
-      toast.info("Nothing to ask with", "Speak, add a photo, or drop your location — then ask again.");
+      toast.info(t("voice.toastNothingTitle"), t("voice.toastNothingMsg"));
       setRecState("idle");
       return;
     }
@@ -137,10 +87,10 @@ export function VoicePage() {
       const next = await getPosition();
       setCoords(next);
       if (!coordsInIndia(next.latitude, next.longitude)) {
-        toast.info("Outside India", "Crop results work best inside India's bounds.");
+        toast.info(t("voice.toastOutsideTitle"), t("voice.toastOutsideMsg"));
       }
     } catch (err) {
-      toast.error("Couldn't fetch location", apiErrorMessage(err));
+      toast.error(t("voice.toastLocErrTitle"), tValue(apiErrorMessage(err)));
     } finally {
       setLocating(false);
     }
@@ -152,7 +102,7 @@ export function VoicePage() {
     setCoords(null);
     setResponse(null);
     setError(null);
-    setRecState("idle");
+    resetRecorder();
   };
 
   const working = recState === "processing";
@@ -163,30 +113,18 @@ export function VoicePage() {
         <motion.div variants={fadeUp} className="flex justify-center">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-leaf-200 bg-leaf-50 px-3 py-1 text-[12px] font-semibold text-leaf-800">
             <IconSparkle className="h-3.5 w-3.5" />
-            Ask in your own words
+            {t("voice.badge")}
           </span>
         </motion.div>
         <motion.h1
           variants={fadeUp}
           className="font-display mt-3 text-3xl font-semibold text-pine-900 sm:text-4xl"
         >
-          The farm, in your voice.
+          {t("voice.title")}
         </motion.h1>
         <motion.p variants={fadeUp} className="mx-auto mt-2 max-w-md text-[14.5px] leading-relaxed text-sage">
-          Speak in Tamil or English — or add a photo and a location. Valam ties them together.
+          {t("voice.subtitle")}
         </motion.p>
-
-        <motion.div variants={fadeUp} className="mt-5 flex justify-center">
-          <Segmented<VoiceLang>
-            id="voice-lang"
-            options={[
-              { value: "en", label: "English" },
-              { value: "ta", label: "தமிழ்" },
-            ]}
-            value={lang}
-            onChange={setLang}
-          />
-        </motion.div>
       </motion.div>
 
       <div className="mt-10 space-y-6">
@@ -205,7 +143,7 @@ export function VoicePage() {
             >
               <Button variant="secondary" onClick={() => void submit()}>
                 <IconSparkle className="h-4 w-4" />
-                Analyze photo{coords ? " + location" : ""} instead
+                {t("voice.analyzePhoto", { extra: coords ? t("voice.analyzePhotoExtra") : "" })}
               </Button>
             </motion.div>
           )}
@@ -214,19 +152,19 @@ export function VoicePage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="card p-4">
             <p className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-sage">
-              Optional photo
+              {t("voice.optPhotoTitle")}
             </p>
             <UploadDropzone file={imageFile} onFile={setImageFile} compact analyzing={false} />
             {imageFile && (
               <p className="mt-2 text-[12px] text-sage">
-                A crop, leaf or weed picture — we&apos;ll check it too.
+                {t("voice.optPhotoTip")}
               </p>
             )}
           </div>
 
           <div className="card p-4">
             <p className="mb-3 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-sage">
-              <IconMapPin className="h-3.5 w-3.5" /> Location (for crops)
+              <IconMapPin className="h-3.5 w-3.5" /> {t("voice.locTitle")}
             </p>
             {coords ? (
               <div className="flex items-center justify-between rounded-xl border border-leaf-200 bg-leaf-50 px-3.5 py-2.5">
@@ -236,7 +174,7 @@ export function VoicePage() {
                 <button
                   type="button"
                   onClick={() => setCoords(null)}
-                  aria-label="Remove location"
+                  aria-label={t("voice.removeLocationAria")}
                   className="grid h-7 w-7 place-items-center rounded-full text-leaf-700 transition-colors hover:bg-leaf-100"
                 >
                   <IconX className="h-4 w-4" />
@@ -245,11 +183,11 @@ export function VoicePage() {
             ) : (
               <Button variant="secondary" full loading={locating} onClick={addLocation}>
                 <IconMapPin className="h-4 w-4" />
-                {locating ? "Locating…" : "Add my location"}
+                {locating ? t("voice.locating") : t("voice.addLocation")}
               </Button>
             )}
             <p className="mt-2.5 text-[12px] leading-relaxed text-sage">
-              Needed for crop suggestions. Falls back to nothing — GPS is never required to speak.
+              {t("voice.locHint")}
             </p>
           </div>
         </div>
@@ -276,7 +214,7 @@ export function VoicePage() {
               </div>
               <div className="min-w-0">
                 <p className="font-display text-[15px] font-semibold text-pine-900">
-                  Thinking it through
+                  {t("voice.thinking")}
                 </p>
                 <AnimatePresence mode="wait">
                   <motion.p
@@ -305,10 +243,10 @@ export function VoicePage() {
               <span className="grid h-12 w-12 place-items-center rounded-full bg-clay-100 text-clay-600">
                 <IconAlert className="h-6 w-6" />
               </span>
-              <p className="font-display text-lg font-semibold text-pine-900">We lost that one</p>
+              <p className="font-display text-lg font-semibold text-pine-900">{t("voice.errorTitle")}</p>
               <p className="max-w-sm text-[13.5px] text-sage">{error}</p>
               <Button variant="secondary" onClick={() => void submit()}>
-                Try again
+                {t("voice.tryAgain")}
               </Button>
             </motion.div>
           )}
@@ -325,22 +263,22 @@ export function VoicePage() {
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-leaf-200 bg-leaf-50 px-3 py-1 text-[12px] font-semibold text-leaf-800">
                 <IconSparkle className="h-3.5 w-3.5" />
-                {INTENT_LABEL[response.intent ?? "unknown"] ?? "General"}
+                {intentLabel(response.intent ?? undefined)}
               </span>
               <button
                 type="button"
                 onClick={reset}
                 className="rounded-full px-3 py-1.5 text-[12.5px] font-medium text-sage transition-colors hover:bg-pine-50 hover:text-pine-800"
               >
-                Start over
+                {t("voice.startOver")}
               </button>
             </div>
 
             {response.transcribed_text && (
-              <TranscriptBlock label="What we heard" text={response.transcribed_text} active />
+              <TranscriptBlock label={t("voice.transcriptHeard")} text={response.transcribed_text} active />
             )}
             <TranscriptBlock
-              label={lang === "ta" ? "பதில் — your answer" : "Your answer"}
+              label={t("voice.transcriptAnswer")}
               text={response.text_response || response.response_text || ""}
               active
               delay={420}
@@ -353,7 +291,7 @@ export function VoicePage() {
               response.results.length > 0) && (
               <div className="pt-2">
                 <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-sage">
-                  Field data
+                  {t("voice.fieldData")}
                 </p>
                 <div className="grid gap-3">
                   {response.crop_result && <CropCard result={response.crop_result} />}

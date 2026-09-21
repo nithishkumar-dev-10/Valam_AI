@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { IconCamera, IconRefresh, IconX } from "./Icons";
 import { cn } from "../lib/utils";
 import { SPRING } from "../lib/motion";
@@ -26,6 +27,7 @@ export function UploadDropzone({
   const [localError, setLocalError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (file) {
@@ -40,11 +42,11 @@ export function UploadDropzone({
   const acceptFile = (candidate: File | undefined | null) => {
     if (!candidate) return;
     if (!candidate.type.startsWith("image/")) {
-      setLocalError("That's not an image — use a JPG, PNG or WebP photo.");
+      setLocalError(t("dropzone.notImage"));
       return;
     }
     if (candidate.size > MAX_SIZE) {
-      setLocalError("Photo is too large (max 15 MB). Try a smaller one.");
+      setLocalError(t("dropzone.tooLarge"));
       return;
     }
     setLocalError(null);
@@ -73,7 +75,7 @@ export function UploadDropzone({
           >
             <img
               src={preview}
-              alt="Uploaded leaf preview"
+              alt={t("dropzone.previewAlt")}
               className={cn(
                 "w-full object-cover transition-all duration-500",
                 compact ? "h-44" : "h-64 sm:h-80",
@@ -90,7 +92,7 @@ export function UploadDropzone({
                   if (inputRef.current) inputRef.current.value = "";
                 }}
                 className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-pine-950/60 text-paper backdrop-blur transition-colors hover:bg-pine-950/80"
-                aria-label="Remove photo"
+                aria-label={t("dropzone.removeAria")}
               >
                 <IconX className="h-4 w-4" />
               </button>
@@ -101,7 +103,7 @@ export function UploadDropzone({
                 onClick={() => inputRef.current?.click()}
                 className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-surface/90 px-3 py-2 text-xs font-semibold text-pine-800 shadow-card backdrop-blur transition-colors hover:bg-surface"
               >
-                <IconRefresh className="h-3.5 w-3.5" /> Retake
+                <IconRefresh className="h-3.5 w-3.5" /> {t("dropzone.retake")}
               </button>
             )}
           </motion.div>
@@ -138,10 +140,10 @@ export function UploadDropzone({
               </motion.span>
               <span>
                 <span className="block text-sm font-semibold text-pine-900">
-                  Tap to add a photo
+                  {t("dropzone.tapAdd")}
                 </span>
                 <span className="mt-1 block text-[12.5px] text-sage">
-                  or drag & drop it here · JPG, PNG, WebP · max 15 MB
+                  {t("dropzone.dragHint")}
                 </span>
               </span>
             </span>

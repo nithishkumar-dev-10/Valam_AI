@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import { Skeleton } from "../components/Skeleton";
@@ -14,6 +15,7 @@ export function ProfilePage() {
   const { status, farmer, signOut, updateName, deleteAccount } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -47,16 +49,16 @@ export function ProfilePage() {
   const saveName = async () => {
     const next = draft.trim();
     if (next.length < 2 || next.length > 80) {
-      toast.error("Name should be 2–80 characters.");
+      toast.error(t("profile.toastNameLen"));
       return;
     }
     setSaving(true);
     try {
       await updateName(next);
       setEditing(false);
-      toast.success("Name updated");
+      toast.success(t("profile.toastNameUpdated"));
     } catch (err) {
-      toast.error("Couldn't update name", apiErrorMessage(err));
+      toast.error(t("profile.toastNameErrTitle"), apiErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -66,10 +68,10 @@ export function ProfilePage() {
     setDeleting(true);
     try {
       await deleteAccount();
-      toast.info("Account deleted");
+      toast.info(t("profile.toastAccountDeleted"));
       navigate("/", { replace: true });
     } catch (err) {
-      toast.error("Couldn't delete account", apiErrorMessage(err));
+      toast.error(t("profile.toastDeleteErrTitle"), apiErrorMessage(err));
       setDeleting(false);
     }
   };
@@ -87,7 +89,7 @@ export function ProfilePage() {
         variants={fadeUp}
         className="font-display text-3xl font-semibold text-pine-900 sm:text-4xl"
       >
-        Your profile
+        {t("profile.title")}
       </motion.h1>
 
       <motion.div variants={fadeUp} className="card mt-6 flex items-center gap-5 p-6">
@@ -102,19 +104,19 @@ export function ProfilePage() {
         <div className="min-w-0 flex-1">
           <h2 className="font-display truncate text-xl font-semibold text-pine-900">{farmer.name}</h2>
           <p className="tnum mt-0.5 text-[14px] text-sage">{fmtPhone(farmer.phone_number)}</p>
-          <p className="mt-0.5 text-[12.5px] text-sage">Member since {fmtDate(farmer.created_at)}</p>
+          <p className="mt-0.5 text-[12.5px] text-sage">{t("profile.memberSince", { date: fmtDate(farmer.created_at) })}</p>
         </div>
       </motion.div>
 
       <motion.div variants={fadeUp} className="card mt-4 p-6">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-[15px] font-semibold text-pine-900">Display name</h3>
-            <p className="mt-0.5 text-[12.5px] text-sage">Shown in greetings around the app.</p>
+            <h3 className="text-[15px] font-semibold text-pine-900">{t("profile.displayName")}</h3>
+            <p className="mt-0.5 text-[12.5px] text-sage">{t("profile.displayNameSub")}</p>
           </div>
           {!editing && (
             <Button variant="secondary" onClick={startEdit}>
-              Edit
+              {t("profile.edit")}
             </Button>
           )}
         </div>
@@ -130,7 +132,7 @@ export function ProfilePage() {
             >
               <div className="mt-4">
                 <Field
-                  label="Name"
+                  label={t("profile.nameLabel")}
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => {
@@ -141,10 +143,10 @@ export function ProfilePage() {
                 />
                 <div className="mt-3 flex gap-3">
                   <Button loading={saving} onClick={() => void saveName()}>
-                    Save
+                    {t("profile.save")}
                   </Button>
                   <Button variant="ghost" onClick={() => setEditing(false)}>
-                    Cancel
+                    {t("profile.cancel")}
                   </Button>
                 </div>
               </div>
@@ -154,10 +156,9 @@ export function ProfilePage() {
       </motion.div>
 
       <motion.div variants={fadeUp} className="card mt-4 p-6">
-        <h3 className="text-[15px] font-semibold text-pine-900">Session</h3>
+        <h3 className="text-[15px] font-semibold text-pine-900">{t("profile.session")}</h3>
         <p className="mt-1 text-[12.5px] leading-relaxed text-sage">
-          Crop, disease and voice checks run without an account — this profile is only used for
-          your name and phone. You can leave any time.
+          {t("profile.sessionSub")}
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <Button
@@ -167,13 +168,13 @@ export function ProfilePage() {
               navigate("/", { replace: true });
             }}
           >
-            <IconLogout className="h-4 w-4" /> Sign out
+            <IconLogout className="h-4 w-4" /> {t("profile.signOut")}
           </Button>
           <Button
             variant="danger"
             onClick={() => setConfirmDelete(true)}
           >
-            <IconTrash className="h-4 w-4" /> Delete account
+            <IconTrash className="h-4 w-4" /> {t("profile.deleteAccount")}
           </Button>
         </div>
 
@@ -188,18 +189,17 @@ export function ProfilePage() {
             >
               <div className="mt-5 rounded-2xl border border-clay-200 bg-clay-50 p-4">
                 <p className="text-[13.5px] font-semibold text-clay-700">
-                  Permanently delete your account and phone number?
+                  {t("profile.deleteTitle")}
                 </p>
                 <p className="mt-1 text-[12.5px] leading-relaxed text-clay-600">
-                  This can&apos;t be undone. Anonymous voice queries aren&apos;t linked to your
-                  account and won&apos;t be touched.
+                  {t("profile.deleteSub")}
                 </p>
                 <div className="mt-4 flex gap-3">
                   <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
-                    Keep my account
+                    {t("profile.keepAccount")}
                   </Button>
                   <Button variant="danger" loading={deleting} onClick={() => void doDelete()}>
-                    Delete forever
+                    {t("profile.deleteForever")}
                   </Button>
                 </div>
               </div>

@@ -1,6 +1,7 @@
 import { forwardRef, useId, useState } from "react";
 import type { InputHTMLAttributes } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { IconAlert, IconEye, IconEyeOff } from "./Icons";
 import { cn } from "../lib/utils";
 
@@ -17,6 +18,7 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
   const autoId = useId();
   const inputId = id ?? autoId;
   const [show, setShow] = useState(false);
+  const { t } = useTranslation();
   const isPassword = type === "password";
   const resolvedType = isPassword ? (show ? "text" : "password") : type ?? "text";
 
@@ -45,7 +47,7 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
             type="button"
             tabIndex={-1}
             onClick={() => setShow((s) => !s)}
-            aria-label={show ? "Hide password" : "Show password"}
+            aria-label={show ? t("field.hidePassword") : t("field.showPassword")}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-sage transition-colors hover:text-pine-700"
           >
             {show ? <IconEyeOff className="h-[18px] w-[18px]" /> : <IconEye className="h-[18px] w-[18px]" />}
