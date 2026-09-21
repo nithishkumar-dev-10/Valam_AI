@@ -35,8 +35,19 @@ training_log.txt
 reports/
 requirements-dev.txt
 
-# --- large local datasets (image only needs app/ml_models/*) ---
-data/
+# --- large local datasets ---
+# The runtime image needs the SMALL lookup CSVs under data/ (crop recommendation
+# reads data/crop_recommendation.csv, data/state_soil_index.csv and
+# data/district_soil_index.csv — see app/services/ml/crop_predictor.py and
+# app/services/external/soil_lookup.py) and the seeding file
+# data/seed/farmers_seed.json. Exclude only the multi-hundred-MB training
+# datasets; a blanket `data/` exclusion silently breaks crop recommendation
+# inside the container.
+data/plantvillage/
+data/plantvillage_split.json
+data/deepweeds/
+data/deepweeds_processed/
+data/pest_data/
 config/
 
 # --- VCS / editor / OS noise ---

@@ -45,7 +45,28 @@ logger = logging.getLogger("valam_ai.main")
 
 # Creates the farmers table on startup if it doesn't exist yet.
 # Fine for v1 -- swap to Alembic migrations before this has real user data.
-Base.metadata.create_all(bind=engine)
+def _create_tables() -> None:
+    """Create any missing tables — safe to run from MULTIPLE uvicorn workers.
+
+    With ``--workers N`` every worker imports this module at the same time and
+    would otherwise race inside ``create_all``: both check "table absent", both
+    issue ``CREATE TABLE``, and the loser dies on Postgres with
+    ``UniqueViolation ... pg_type_typname_nsp_index`` (observed in the Docker
+    stack). Uvicorn respawns the crashed worker, so it self-heals, but every
+    cold start logs a scary traceback and briefly runs under-strength.
+
+    A transaction-scoped Postgres advisory lock serialises the check-then-create
+    so exactly one worker builds the schema and the rest become no-ops. SQLite
+    (single-writer, single worker) skips the lock entirely.
+    """
+    with engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            # Arbitrary fixed key; auto-released when this transaction ends.
+            conn.execute(sqlalchemy.text("SELECT pg_advisory_xact_lock(727058)"))
+        Base.metadata.create_all(bind=conn)
+
+
+_create_tables()
 
 os.makedirs(VOICE_AUDIO_OUTPUT_DIR, exist_ok=True)
 os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)

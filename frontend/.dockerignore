@@ -1,0 +1,31 @@
+# Build context hygiene for frontend/Dockerfile.
+#
+# CRITICAL: node_modules MUST be excluded. The Dockerfile runs `npm ci` inside a
+# Linux/alpine stage, then `COPY . .`. If the host's node_modules (macOS binaries,
+# e.g. the platform-specific esbuild package) were copied over, the Vite build
+# would fail with a "installed esbuild for another platform" error. Keep the
+# Linux install intact.
+
+# --- dependencies & build output (rebuilt inside the image) ---
+node_modules/
+dist/
+
+# --- local env overrides (never bake into an image) ---
+# .env.production is intentionally KEPT: it is not secret and is the public API
+# origin the shipped bundle calls. The Dockerfile's VITE_API_BASE_URL build-arg
+# still overrides it when provided.
+.env
+.env.local
+.env.*.local
+
+# --- Capacitor native projects (not needed to build the web bundle) ---
+android/
+ios/
+
+# --- caches / logs / OS noise ---
+.vite/
+coverage/
+npm-debug.log*
+.DS_Store
+.vscode/
+.idea/

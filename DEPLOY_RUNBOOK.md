@@ -180,11 +180,16 @@ UptimeRobot monitor on `/api/v1/health` (expect 200).
 ## 8. Android build → Play upload 🧑
 
 ```bash
+# 1. ONCE, on the signing machine, from the REPO ROOT. Generates
+#    ~/valam-keystore/valam-upload.jks + frontend/android/key.properties
+#    (both git-ignored). Skip if you already have the keystore.
+./scripts/gen_android_keystore.sh
+
+# 2. Build the web bundle, copy it into the Android project, sign the AAB.
 cd frontend
 npm ci
 npm run build                 # bakes VITE_API_BASE_URL=https://api.valam.in
 npx cap sync android
-./scripts/../scripts/gen_android_keystore.sh   # once, on the signing machine only
 cd android && ./gradlew bundleRelease
 ```
 
