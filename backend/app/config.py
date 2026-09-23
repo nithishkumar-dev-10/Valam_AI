@@ -25,6 +25,15 @@ DEEP_WEED_CLASSES_PATH = ML_MODELS_DIR / "deepweeds_classes.json"
 STATIC_DIR = BASE_DIR / "app" / "static"
 VOICE_AUDIO_OUTPUT_DIR = STATIC_DIR / "voice_responses"
 VOICE_AUDIO_RETENTION_DAYS = int(os.getenv("VOICE_AUDIO_RETENTION_DAYS", "30"))
+# Object-storage bucket for TTS voice clips (e.g. "gs://valam-voice-clips").
+# Cloud Run instances do NOT share a filesystem, so on any multi-instance deploy
+# audio written to the per-instance local VOICE_AUDIO_OUTPUT_DIR can 404 when a
+# different instance serves the same URL, and clips vanish on redeploy. Empty =
+# write to local disk (single-instance / local dev only). app/main.py logs a
+# WARNING at startup if production is running without this set. Full Cloud
+# Storage migration is intentionally NOT implemented yet — this flag only
+# surfaces the risk so it doesn't break silently.
+AUDIO_STORAGE_BUCKET = os.getenv("AUDIO_STORAGE_BUCKET", "").strip()
 TEMP_UPLOAD_DIR = BASE_DIR / "app" / "temp_uploads"
 # Decompression-bomb guard: reject images larger than this many pixels BEFORE
 # any decode, so a tiny 15 MB file can't balloon into gigabytes of RAM. PIL's
@@ -41,18 +50,35 @@ NOMINATIM_USER_AGENT = os.getenv(
     "ValamAI/0.1 (crop-recommendation prototype)",
 )
 
+# App environment ("development" | "production"). Must be defined BEFORE
+# CORS_ORIGINS below: in production the origin allowlist has NO dev fallback.
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+
 # Comma-separated list of allowed CORS origins (the frontend is a separate
 # service: the sibling frontend/ repo today, a Flutter app later). Override
 # via env to add production domains without a code change:
 #   CORS_ORIGINS="https://app.example.com,https://admin.example.com"
-CORS_ORIGINS = [
-    o.strip()
-    for o in os.getenv(
-        "CORS_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
-    ).split(",")
-    if o.strip()
-]
+#
+# In PRODUCTION there is no hardcoded localhost fallback: the list is read
+# strictly from the env var, and validate_config() refuses to start if it is
+# empty (an empty allowlist would silently block every cross-origin request,
+# including the browser's credentialed auth calls). In development a localhost
+# list is used so the Vite dev server works out of the box.
+if ENVIRONMENT == "production":
+    CORS_ORIGINS = [
+        o.strip()
+        for o in os.getenv("CORS_ORIGINS", "").split(",")
+        if o.strip()
+    ]
+else:
+    CORS_ORIGINS = [
+        o.strip()
+        for o in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
+        ).split(",")
+        if o.strip()
+    ]
 
 # Default SQLite file lives in backend/db/ (app/database.py creates the folder
 # on import). Override DATABASE_URL for Postgres — nothing else changes.
@@ -99,11 +125,6 @@ MAX_AUDIO_UPLOAD_MB = int(os.getenv("MAX_AUDIO_UPLOAD_MB", "15"))
 # decode) so a long low-bitrate clip can't force a multi-minute Whisper decode.
 MAX_AUDIO_DURATION_SECONDS = int(os.getenv("MAX_AUDIO_DURATION_SECONDS", "300"))
 
-# App environment ("development" | "production"). Swagger docs/redoc are
-# disabled in production (app.main sets docs_url=None) so the API surface
-# isn't publicly browsable on the live server.
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
-
 # Optional admin surface. When set, enables GET /api/v1/admin/logs so you can
 # read recent log lines with a curl one-liner instead of SSHing. Long random
 # value; keep it in .env, never in the frontend.
@@ -131,6 +152,12 @@ def validate_config():
     """Fail loudly at startup when required env vars are missing. Never run
     insecurely with a silent placeholder secret."""
     missing = [f"  {var} — {hint}" for var, hint in REQUIRED_ENV_VARS.items() if not os.getenv(var)]
+    if ENVIRONMENT == "production" and not CORS_ORIGINS:
+        missing.append(
+            "  CORS_ORIGINS — required in production (no localhost fallback). "
+            "Comma-separated list of real frontend origins, e.g. "
+            'CORS_ORIGINS="https://valam.in,https://app.valam.in"'
+        )
     if SECRET_KEY is not None and len(SECRET_KEY) < 32:
         missing.append(
             "  SECRET_KEY — too short (must be ≥ 32 chars). Generate with: "
