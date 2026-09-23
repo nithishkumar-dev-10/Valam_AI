@@ -8,8 +8,6 @@ import time
 import asyncio
 from contextlib import asynccontextmanager
 
-from starlette.concurrency import run_in_threadpool
-
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -39,7 +37,6 @@ from app.config import (
 )
 from app.rate_limiter import limiter
 from app.middleware import AccessLogMiddleware, SecurityHeadersMiddleware, BodySizeLimitMiddleware
-from app.services.dl.voice_service import voice_service
 
 logger = logging.getLogger("valam_ai.main")
 
@@ -110,10 +107,6 @@ async def lifespan(app: FastAPI):
     logger.info("CORS_ORIGINS=%s", ",".join(CORS_ORIGINS) or "(none)")
     _purge_temp_uploads()
     _purge_voice_audio()
-
-    # Preload Whisper at startup (off the event loop) so the first user of
-    # /voice/query never stalls behind a lazy model load.
-    await run_in_threadpool(voice_service.warm_up)
 
     async def _retention_loop():
         while True:
