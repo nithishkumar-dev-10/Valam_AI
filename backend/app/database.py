@@ -42,8 +42,14 @@ if DATABASE_URL.startswith("sqlite"):
 else:
     # PostgreSQL / other RDMS
     _engine_kwargs["pool_pre_ping"] = True
-    _engine_kwargs["pool_size"] = 5
-    _engine_kwargs["max_overflow"] = 10
+    # Keep the client-side pool tiny (1 + 2 overflow) because production uses
+    # Neon's PgBouncer POOLED endpoint (-pooler): Neon multiplexes many client
+    # connections onto fewer Postgres backends, and large per-container pools
+    # on a horizontally-scaling platform (Cloud Run) exhaust connection limits.
+    # With UVICORN_WORKERS=1 one container holds at most 3 connections, and
+    # PgBouncer absorbs the concurrency Cloud Run's many instances produce.
+    _engine_kwargs["pool_size"] = 1
+    _engine_kwargs["max_overflow"] = 2
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
 

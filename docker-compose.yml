@@ -7,7 +7,7 @@
 #
 # For a quick SINGLE-CONTAINER backend smoke test (SQLite, no Postgres):
 #   docker build -t valam-backend ./backend
-#   docker run --rm -p 8000:8000 -e SECRET_KEY=$(openssl rand -hex 32) \
+#   docker run --rm -p 8080:8080 -e SECRET_KEY=$(openssl rand -hex 32) \
 #     -e UVICORN_WORKERS=1 valam-backend
 #
 # This file is for LOCAL TESTING. Production uses the deploy/ runbook
@@ -68,7 +68,9 @@ services:
       # degrades gracefully rather than failing.
       WEATHER_API_KEY: ${WEATHER_API_KEY:-}
     ports:
-      - "8000:8000"
+      # Container now listens on $PORT (default 8080) for Cloud Run parity;
+      # keep the HOST side on 8000 so local URLs/frontend config don't change.
+      - "8000:8080"
     # Persist generated TTS clips + rotating logs across restarts (optional).
     volumes:
       - backend-logs:/app/logs

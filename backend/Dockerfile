@@ -14,6 +14,13 @@
 #
 # NOTE: the model weights are ~72 MB tracked in git; torch CPU wheels are large,
 # so the final image is ~2 GB. That is expected for an ML serving image.
+#
+# Deploy target: Google Cloud Run. Cloud Run injects $PORT (default 8080) and
+# expects the container to listen there; the CMD below binds to ${PORT:-8080}.
+# There is nothing Render-specific in this image (base image, torch CPU wheels
+# via --extra-index-url, and baked Whisper weights all build fine as a standard
+# OCI container). Cloud Run termininates TLS at its ingress, so uvicorn keeps
+# --proxy-headers/--forwarded-allow-ips to honor X-Forwarded-* correctly.
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -98,14 +105,25 @@ RUN mkdir -p /app/logs /app/db /app/app/temp_uploads /app/app/static/voice_respo
 
 USER appuser
 
-EXPOSE 8000
+# Cloud Run routes traffic to $PORT (injected; default 8080 on other hosts).
+EXPOSE 8080
 
-# Readiness probe for orchestrators (and `docker compose ps` health).
+# Readiness probe for orchestrators (and `docker compose ps` health). Uses the
+# same $PORT the server binds to. Cloud Run does NOT read this HEALTHCHECK — it
+# runs its own startup/readiness probe against $PORT instead — but keeping it
+# consistent is useful for local `docker run` sanity checks.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health').status==200 else 1)"
+  CMD-SHELL python -c "import urllib.request,sys,os; p=os.environ.get('PORT','8080'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/api/v1/health').status==200 else 1)"
 
-# Production ASGI server. Workers are configurable: 2 is safe once DATABASE_URL
-# points at Postgres. On the default SQLite (single-writer) + in-memory rate
-# limiter setup, set UVICORN_WORKERS=1 (see docker-compose.yml / docs/DEPLOY_RUNBOOK.md).
-ENV UVICORN_WORKERS=2
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS} --proxy-headers --forwarded-allow-ips '*'"]
+# Production ASGI server. Bind to $PORT so Cloud Run (which injects PORT=8080)
+# can route traffic; fall back to 8080 when unset (docker compose, local runs).
+# Single worker on purpose:
+#   * slowapi's rate limiter is IN-MEMORY and per-worker — 1 worker keeps each
+#     per-IP limit strict and global instead of being partitioned N ways.
+#   * stays inside Neon's connection budget (each worker owns its own SQLAlchemy
+#     pool; see app/database.py pool_size=1 / max_overflow=2).
+# Cloud Run injects $PORT and the external Postgres must come from DATABASE_URL
+# — the runtime filesystem is EPHEMERAL, so the default SQLite db would reset
+# on every cold start.
+ENV UVICORN_WORKERS=1
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers ${UVICORN_WORKERS} --proxy-headers --forwarded-allow-ips '*'"]

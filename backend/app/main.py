@@ -34,6 +34,7 @@ from app.config import (
     CORS_ORIGINS,
     ADMIN_ACCESS_KEY,
     ENVIRONMENT,
+    AUDIO_STORAGE_BUCKET,
 )
 from app.rate_limiter import limiter
 from app.middleware import AccessLogMiddleware, SecurityHeadersMiddleware, BodySizeLimitMiddleware
@@ -42,6 +43,9 @@ logger = logging.getLogger("valam_ai.main")
 
 # Creates the farmers table on startup if it doesn't exist yet.
 # Fine for v1 -- swap to Alembic migrations before this has real user data.
+# NOTE: called from lifespan (not module import) so a cold/detached Postgres
+# can't crash the worker before uvicorn binds its socket. See
+# _create_tables_with_retry().
 def _create_tables() -> None:
     """Create any missing tables — safe to run from MULTIPLE uvicorn workers.
 
@@ -63,7 +67,39 @@ def _create_tables() -> None:
         Base.metadata.create_all(bind=conn)
 
 
-_create_tables()
+def _create_tables_with_retry(max_attempts: int = 6, base_delay: float = 1.5) -> None:
+    """Create tables with exponential-backoff retries.
+
+    Guards the FIRST connection on a fresh deploy. Serverless Postgres (e.g.
+    Neon scale-to-zero) can be suspended at boot, so the initial connect may
+    need to wake the compute — pool_pre_ping does NOT cover this (it only pings
+    on pool checkout of an existing connection, not the first dial to a fresh
+    pool). Without this retry a slow/failed boot connect would crash-loop the
+    uvicorn worker on import while the master still holds the TCP socket
+    healthy-looking.
+
+    create_all is idempotent and advisory-lock-guarded, so retrying is safe.
+    After max_attempts it raises and the container starts unhealthy on purpose
+    — explicit startup failure beats silently serving 502s.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            _create_tables()
+            logger.info("Database tables ready on attempt %d/%d", attempt, max_attempts)
+            return
+        except Exception as exc:
+            last_exc = exc
+            delay = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "create_all attempt %d/%d failed (DB unreachable / waking?): %s. "
+                "Retrying in %.1fs",
+                attempt, max_attempts, exc, delay,
+            )
+            time.sleep(delay)
+    raise RuntimeError(
+        f"Database unreachable after {max_attempts} attempts: {last_exc}"
+    )
 
 os.makedirs(VOICE_AUDIO_OUTPUT_DIR, exist_ok=True)
 os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
@@ -101,12 +137,29 @@ def _purge_temp_uploads() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: purge stale TTS clips + any orphaned temp uploads (both are
-    user-derived data that must never linger), then run a background retention
-    sweep every 6h so cleanup happens continuously, not only on restart."""
+    """Startup: bring up the schema (with retry — see _create_tables_with_retry),
+    purge stale TTS clips + any orphaned temp uploads (both are user-derived
+    data that must never linger), then run a background retention sweep every 6h
+    so cleanup happens continuously, not only on restart."""
     logger.info("CORS_ORIGINS=%s", ",".join(CORS_ORIGINS) or "(none)")
+    _create_tables_with_retry()
     _purge_temp_uploads()
     _purge_voice_audio()
+
+    # Per-instance filesystem hazard on Cloud Run: TTS/voice clips are written
+    # to the LOCAL app/static/voice_responses dir. Cloud Run instances share
+    # nothing, so on any multi-instance / redeploy the audio URL a user got can
+    # 404 and clips are lost. Surface it loudly so it can't break silently.
+    if ENVIRONMENT == "production" and not AUDIO_STORAGE_BUCKET:
+        logger.warning(
+            "Running in production WITHOUT object storage (AUDIO_STORAGE_BUCKET "
+            "unset): voice/TTS clips are stored on the per-instance local "
+            "filesystem (app/static/voice_responses), which is EPHEMERAL on "
+            "Cloud Run and NOT shared across instances. Clips can return 404 "
+            "when another instance serves them and are lost on redeploy. Set "
+            "AUDIO_STORAGE_BUCKET (e.g. a Cloud Storage bucket) before voice "
+            "audio matters; until then, run Cloud Run with min-instances=1."
+        )
 
     async def _retention_loop():
         while True:
@@ -241,6 +294,9 @@ app.add_middleware(BodySizeLimitMiddleware)
 # Serves app/static/** at /static/** so audio files, etc. are fetchable
 # over HTTP instead of only existing as a local filesystem path. Intentionally
 # unversioned — these are opaque asset URLs handed to clients by the API.
+# CAVEAT: this is the LOCAL per-instance filesystem. On Cloud Run (multi-
+# instance) clips can 404 once the serving instance differs from the generating
+# one — see the AUDIO_STORAGE_BUCKET startup warning in lifespan().
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
