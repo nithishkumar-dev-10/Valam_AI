@@ -6,6 +6,8 @@ data/deepweeds/
 data/deepweeds_processed/
 data/pest_data/
 data/plantvillage_split.json
+# Seed file contains REAL phone numbers + bcrypt hashes — never track.
+data/seed/
 
 # Runtime logs — never track (removed from the index with `git rm --cached`).
 *.log
