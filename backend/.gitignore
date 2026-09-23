@@ -1,0 +1,16 @@
+.env
+venv
+data/plantvillage/
+.DS_Store
+data/deepweeds/
+data/deepweeds_processed/
+data/pest_data/
+data/plantvillage_split.json
+
+# Runtime logs — never track (removed from the index with `git rm --cached`).
+*.log
+log.txt
+training_log.txt
+
+# Runtime SQLite database (backend/db/valam.db, created at runtime).
+db/
