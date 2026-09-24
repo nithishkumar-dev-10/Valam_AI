@@ -146,19 +146,19 @@ async def lifespan(app: FastAPI):
     _purge_temp_uploads()
     _purge_voice_audio()
 
-    # Per-instance filesystem hazard on Cloud Run: TTS/voice clips are written
-    # to the LOCAL app/static/voice_responses dir. Cloud Run instances share
+    # Per-instance filesystem hazard on multi-instance hosts: TTS/voice clips
+    # are written to the LOCAL app/static/voice_responses dir. Instances share
     # nothing, so on any multi-instance / redeploy the audio URL a user got can
     # 404 and clips are lost. Surface it loudly so it can't break silently.
     if ENVIRONMENT == "production" and not AUDIO_STORAGE_BUCKET:
         logger.warning(
             "Running in production WITHOUT object storage (AUDIO_STORAGE_BUCKET "
             "unset): voice/TTS clips are stored on the per-instance local "
-            "filesystem (app/static/voice_responses), which is EPHEMERAL on "
-            "Cloud Run and NOT shared across instances. Clips can return 404 "
-            "when another instance serves them and are lost on redeploy. Set "
-            "AUDIO_STORAGE_BUCKET (e.g. a Cloud Storage bucket) before voice "
-            "audio matters; until then, run Cloud Run with min-instances=1."
+            "filesystem (app/static/voice_responses), which is EPHEMERAL and "
+            "NOT shared across instances. Clips can return 404 when another "
+            "instance serves them and are lost on redeploy. Set "
+            "AUDIO_STORAGE_BUCKET (an S3-compatible bucket, e.g. Cloudflare "
+            "R2) before voice audio matters; until then, run a single instance."
         )
 
     async def _retention_loop():

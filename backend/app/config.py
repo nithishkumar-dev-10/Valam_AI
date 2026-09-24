@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 
 # Load backend/.env FIRST, before any os.getenv() below. Several settings
-# (WHISPER_MODEL_SIZE, DEFAULT_VOICE_LANGUAGE, VOICE_AUDIO_RETENTION_DAYS,
+# (DEFAULT_VOICE_LANGUAGE, VOICE_AUDIO_RETENTION_DAYS,
 # MAX_IMAGE_PIXELS) are read further down, so calling this late silently pinned
 # them to their defaults on the systemd deployment path, which relies on .env
 # (the unit has no EnvironmentFile=). Real process env still wins over .env
@@ -25,15 +25,22 @@ DEEP_WEED_CLASSES_PATH = ML_MODELS_DIR / "deepweeds_classes.json"
 STATIC_DIR = BASE_DIR / "app" / "static"
 VOICE_AUDIO_OUTPUT_DIR = STATIC_DIR / "voice_responses"
 VOICE_AUDIO_RETENTION_DAYS = int(os.getenv("VOICE_AUDIO_RETENTION_DAYS", "30"))
-# Object-storage bucket for TTS voice clips (e.g. "gs://valam-voice-clips").
-# Cloud Run instances do NOT share a filesystem, so on any multi-instance deploy
-# audio written to the per-instance local VOICE_AUDIO_OUTPUT_DIR can 404 when a
-# different instance serves the same URL, and clips vanish on redeploy. Empty =
-# write to local disk (single-instance / local dev only). app/main.py logs a
-# WARNING at startup if production is running without this set. Full Cloud
-# Storage migration is intentionally NOT implemented yet — this flag only
-# surfaces the risk so it doesn't break silently.
+# S3-compatible object storage for TTS voice clips, via Cloudflare R2.
+# Multi-instance hosts (Oracle VM, Cloud Run, K8s) do NOT share a filesystem, so
+# on any multi-instance deploy audio written to the per-instance local
+# VOICE_AUDIO_OUTPUT_DIR can 404 when a different instance serves the same URL,
+# and clips vanish on redeploy. Empty = write to local disk (single-instance /
+# local dev only). app/main.py logs a WARNING at startup if production is
+# running without this set.
+#
+# R2 is AWS S3 protocol-compatible, so the storage layer talks to it via boto3:
+#   R2_ENDPOINT_URL       https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+#   R2_ACCESS_KEY_ID      from "R2 > Manage R2 API Tokens"
+#   R2_SECRET_ACCESS_KEY  (same)
 AUDIO_STORAGE_BUCKET = os.getenv("AUDIO_STORAGE_BUCKET", "").strip()
+R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "").strip()
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "").strip()
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
 TEMP_UPLOAD_DIR = BASE_DIR / "app" / "temp_uploads"
 # Decompression-bomb guard: reject images larger than this many pixels BEFORE
 # any decode, so a tiny 15 MB file can't balloon into gigabytes of RAM. PIL's
@@ -41,8 +48,13 @@ TEMP_UPLOAD_DIR = BASE_DIR / "app" / "temp_uploads"
 MAX_IMAGE_PIXELS = int(os.getenv("MAX_IMAGE_PIXELS", "16000000"))
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "backend.log"
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "tiny")  # was "base"
 DEFAULT_VOICE_LANGUAGE = os.getenv("DEFAULT_VOICE_LANGUAGE", "ta")
+
+# Groq Whisper API key for STT. The whisper model is served by Groq
+# (whisper-large-v3) rather than loaded locally, so no Whisper weights are
+# baked into the image and no WHISPER_MODEL_SIZE knob exists anymore.
+# Transcription fails loudly at call time (not boot) if this is unset.
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 NOMINATIM_USER_AGENT = os.getenv(
