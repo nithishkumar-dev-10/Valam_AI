@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build:capacitor": "tsc -p tsconfig.json --noEmit && vite build --mode capacitor",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "cap:sync": "npm run build && cap sync android",
+    "cap:sync": "npm run build:capacitor && cap sync android",
     "cap:open": "cap open android",
     "android:assets": "capacitor-assets generate --android"
   },

@@ -20,7 +20,6 @@ the future, but a listener without an account must still work.
 """
 
 import uuid
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
@@ -134,17 +133,25 @@ async def voice_query(
     try:
         # gTTS does blocking socket I/O; run it off the event loop so one slow
         # synthesis can't stall every other request on the single worker.
-        audio_path = await run_in_threadpool(
+        audio_reference = await run_in_threadpool(
             voice_service.synthesize, out["summary"], language=out["summary_language"]
         )
-        audio_relative = f"/static/voice_responses/{Path(audio_path).name}"
-        audio_url = str(request.base_url).rstrip("/") + audio_relative
+        if audio_reference.startswith(("http://", "https://")):
+            # Object-storage mode (AUDIO_STORAGE_BUCKET set): synthesize
+            # already returned an absolute signed URL — use it directly. The
+            # legacy audio_response_path (relative /static path) has no meaning
+            # here and stays None; the frontend plays audio_url.
+            audio_url = audio_reference
+        else:
+            audio_relative = audio_reference
+            audio_url = str(request.base_url).rstrip("/") + audio_relative
     except Exception as exc:  # response is still fully usable without audio
         logger.error(f"gTTS synthesis failed: {exc}")
 
     crop = out["crop_result"]
     disease = out["disease_result"]
     pest = out["pest_result"]
+    weed = out["weed_result"]
 
     return UnifiedVoiceResponse(
         intent=out["intent"],
@@ -180,6 +187,11 @@ async def voice_query(
         pest_result=(
             WeedPestOutput(predicted_class=pest["predicted_class"], confidence=pest["confidence"])
             if pest
+            else None
+        ),
+        weed_result=(
+            WeedPestOutput(predicted_class=weed["predicted_class"], confidence=weed["confidence"])
+            if weed
             else None
         ),
     )

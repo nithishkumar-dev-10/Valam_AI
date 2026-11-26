@@ -15,9 +15,12 @@ import type {
   WeedPestOutput,
 } from "../types";
 
-const BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"
-).replace(/\/$/, "");
+// Production: the built SPA is served by FastAPI itself, so API calls use
+// same-origin relative paths ("" = current origin) and need no CORS preflight.
+// Dev/native/split deployments can still point at an explicit API origin via
+// VITE_API_BASE_URL (the Vite dev server proxies /api to localhost:8000 by
+// default, so the local dev server also works with the empty default).
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 
 // The refresh token NEVER touches JavaScript: it lives in an httpOnly + SameSite
 // cookie scoped to /api/v1/auth (set by the backend on login, rotated on every

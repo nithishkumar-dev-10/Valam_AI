@@ -7,6 +7,7 @@ import logging
 import time
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -15,9 +16,10 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-from fastapi import FastAPI, Request
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
@@ -34,14 +36,37 @@ from app.config import (
     CORS_ORIGINS,
     ADMIN_ACCESS_KEY,
     ENVIRONMENT,
+    AUDIO_STORAGE_BUCKET,
 )
 from app.rate_limiter import limiter
 from app.middleware import AccessLogMiddleware, SecurityHeadersMiddleware, BodySizeLimitMiddleware
 
 logger = logging.getLogger("valam_ai.main")
 
-# Creates the farmers table on startup if it doesn't exist yet.
-# Fine for v1 -- swap to Alembic migrations before this has real user data.
+# The built Vite SPA lives in ../frontend/dist relative to THIS file (not the
+# process CWD), so Render/systemd/docker can start uvicorn from any directory.
+# FRONTEND_DIST_DIR allows hosts with a different build layout to override it.
+FRONTEND_DIST_DIR = Path(
+    os.getenv(
+        "FRONTEND_DIST_DIR",
+        str(Path(__file__).resolve().parents[2] / "frontend" / "dist"),
+    )
+).resolve()
+
+
+def _safe_frontend_file(full_path: str) -> Path | None:
+    """Resolve a requested path inside FRONTEND_DIST_DIR, or None if it escapes
+    the build directory / does not exist. Prevents `..` path traversal."""
+    if not full_path:
+        return None
+    candidate = (FRONTEND_DIST_DIR / full_path).resolve()
+    try:
+        candidate.relative_to(FRONTEND_DIST_DIR)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
 def _create_tables() -> None:
     """Create any missing tables — safe to run from MULTIPLE uvicorn workers.
 
@@ -63,7 +88,39 @@ def _create_tables() -> None:
         Base.metadata.create_all(bind=conn)
 
 
-_create_tables()
+def _create_tables_with_retry(max_attempts: int = 6, base_delay: float = 1.5) -> None:
+    """Create tables with exponential-backoff retries.
+
+    Guards the FIRST connection on a fresh deploy. Serverless Postgres (e.g.
+    Neon scale-to-zero) can be suspended at boot, so the initial connect may
+    need to wake the compute — pool_pre_ping does NOT cover this (it only pings
+    on pool checkout of an existing connection, not the first dial to a fresh
+    pool). Without this retry a slow/failed boot connect would crash-loop the
+    uvicorn worker on import while the master still holds the TCP socket
+    healthy-looking.
+
+    create_all is idempotent and advisory-lock-guarded, so retrying is safe.
+    After max_attempts it raises and the container starts unhealthy on purpose
+    — explicit startup failure beats silently serving 502s.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            _create_tables()
+            logger.info("Database tables ready on attempt %d/%d", attempt, max_attempts)
+            return
+        except Exception as exc:
+            last_exc = exc
+            delay = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "create_all attempt %d/%d failed (DB unreachable / waking?): %s. "
+                "Retrying in %.1fs",
+                attempt, max_attempts, exc, delay,
+            )
+            time.sleep(delay)
+    raise RuntimeError(
+        f"Database unreachable after {max_attempts} attempts: {last_exc}"
+    )
 
 os.makedirs(VOICE_AUDIO_OUTPUT_DIR, exist_ok=True)
 os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
@@ -101,12 +158,29 @@ def _purge_temp_uploads() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: purge stale TTS clips + any orphaned temp uploads (both are
-    user-derived data that must never linger), then run a background retention
-    sweep every 6h so cleanup happens continuously, not only on restart."""
+    """Startup: bring up the schema (with retry — see _create_tables_with_retry),
+    purge stale TTS clips + any orphaned temp uploads (both are user-derived
+    data that must never linger), then run a background retention sweep every 6h
+    so cleanup happens continuously, not only on restart."""
     logger.info("CORS_ORIGINS=%s", ",".join(CORS_ORIGINS) or "(none)")
+    _create_tables_with_retry()
     _purge_temp_uploads()
     _purge_voice_audio()
+
+    # Per-instance filesystem hazard on multi-instance hosts: TTS/voice clips
+    # are written to the LOCAL app/static/voice_responses dir. Instances share
+    # nothing, so on any multi-instance / redeploy the audio URL a user got can
+    # 404 and clips are lost. Surface it loudly so it can't break silently.
+    if ENVIRONMENT == "production" and not AUDIO_STORAGE_BUCKET:
+        logger.warning(
+            "Running in production WITHOUT object storage (AUDIO_STORAGE_BUCKET "
+            "unset): voice/TTS clips are stored on the per-instance local "
+            "filesystem (app/static/voice_responses), which is EPHEMERAL and "
+            "NOT shared across instances. Clips can return 404 when another "
+            "instance serves them and are lost on redeploy. Set "
+            "AUDIO_STORAGE_BUCKET (an S3-compatible bucket, e.g. Cloudflare "
+            "R2) before voice audio matters; until then, run a single instance."
+        )
 
     async def _retention_loop():
         while True:
@@ -213,14 +287,14 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
             logger.warning("Could not attach rate-limit headers: %s", exc)
     return response
 
-# CORS: the frontend is a SEPARATE service (sibling ../frontend repo /
-# eventual Flutter app) talking to this API over HTTP. Origins come from the
-# env-driven CORS_ORIGINS (comma-separated); localhost values are dev-only
-# defaults that production .env replaces.
+# CORS: the web bundle is served by this app on the SAME origin, so it needs no
+# CORS at all. CORS_ORIGINS (comma-separated) is only for genuinely cross-origin
+# clients (Capacitor WebView / separate admin app); dev defaults cover the Vite
+# dev server when it is run separately.
 #
 # allow_credentials=True is REQUIRED now that the refresh token lives in an
-# httpOnly cookie: the SPA's cross-origin fetch must carry credentials for the
-# cookie to be stored/sent, and the browser rejects credentialed requests when
+# httpOnly cookie: a cross-origin client must send credentials for the cookie to
+# be stored/returned, and the browser rejects credentialed requests when
 # allow_origins is "*". It stays an explicit allowlist (never a wildcard).
 app.add_middleware(
     CORSMiddleware,
@@ -241,7 +315,26 @@ app.add_middleware(BodySizeLimitMiddleware)
 # Serves app/static/** at /static/** so audio files, etc. are fetchable
 # over HTTP instead of only existing as a local filesystem path. Intentionally
 # unversioned — these are opaque asset URLs handed to clients by the API.
+# CAVEAT: this is the LOCAL per-instance filesystem. On Cloud Run (multi-
+# instance) clips can 404 once the serving instance differs from the generating
+# one — see the AUDIO_STORAGE_BUCKET startup warning in lifespan().
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Vite emits hashed JS/CSS into dist/assets. Mount it explicitly so asset URLs
+# are served by StaticFiles (correct MIME types + 404s for missing files) and
+# never fall through to the SPA index.html. Guard the mount for backend-only
+# checkouts where `npm run build` has not produced dist/ yet.
+if (FRONTEND_DIST_DIR / "assets").is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(FRONTEND_DIST_DIR / "assets")),
+        name="frontend-assets",
+    )
+else:
+    logger.warning(
+        "Vite assets directory not found at %s — run `npm --prefix frontend run build`",
+        FRONTEND_DIST_DIR / "assets",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -279,8 +372,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 # ---------------------------------------------------------------------------
-# Versioned routers — all under /api/v1. (Root "/" stays unversioned as a
-# legacy liveness surface.)
+# Versioned routers — all under /api/v1. Root "/" and other browser paths are
+# handled by the SPA fallback registered at the very end of this module.
 # ---------------------------------------------------------------------------
 
 API_V1 = "/api/v1"
@@ -292,11 +385,6 @@ app.include_router(voice.router, prefix=API_V1)
 app.include_router(pest.router, prefix=API_V1)
 if ADMIN_ACCESS_KEY:
     app.include_router(admin.router, prefix=API_V1)
-
-
-@app.get("/")
-def root():
-    return {"status": "Valam AI backend is running"}
 
 
 @app.get(f"{API_V1}/health", tags=["Health"], summary="Liveness + DB probe",
@@ -318,3 +406,57 @@ def health_check():
             "database": "ok" if db_ok else "unreachable",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# SPA fallback — MUST stay last. FastAPI matches routes in registration order,
+# so every API endpoint, /static and /assets mount, and /docs, /redoc and
+# /openapi.json are resolved before this catch-all gets a chance.
+# ---------------------------------------------------------------------------
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str, request: Request):
+    """Serve index.html for browser routes (/, /crop, /voice, ...).
+
+    Unknown /api/** and docs paths still get a JSON 404, and a missing hashed
+    asset (e.g. /assets/gone.js) never gets an HTML shell.
+    """
+    # The catch-all would otherwise suppress Starlette's usual trailing-slash
+    # redirect for real API/docs routes (e.g. /api/v1/health/).
+    if full_path.endswith("/") and full_path.strip("/"):
+        canonical = "/" + full_path.strip("/")
+        if canonical.startswith(("/api", "/docs", "/redoc")) and any(
+            getattr(route, "path", None) == canonical for route in app.routes
+        ):
+            query = f"?{request.url.query}" if request.url.query else ""
+            return RedirectResponse(url=f"{canonical}{query}", status_code=307)
+
+    path = full_path.strip("/")
+    if (
+        path == "api"
+        or path.startswith("api/")
+        or path in {"docs", "redoc", "openapi.json"}
+    ):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    # Backend-only checkout (no frontend build): keep the legacy liveness body
+    # at "/", and 404 everything else rather than pretending to serve the SPA.
+    if not FRONTEND_DIST_DIR.is_dir():
+        if not path:
+            return {"status": "Valam AI backend is running"}
+        raise HTTPException(status_code=404, detail="Frontend build not found")
+
+    # Serve real files that live at the root of dist/ (favicon, manifest, ...).
+    candidate = _safe_frontend_file(path) if path else None
+    if candidate is not None:
+        headers = {"Cache-Control": "no-cache"} if candidate.name == "index.html" else None
+        return FileResponse(candidate, headers=headers)
+
+    # A path with a file extension is an asset request, not a client route —
+    # returning index.html here would produce a MIME-type error in the browser.
+    if Path(path).suffix:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    index = FRONTEND_DIST_DIR / "index.html"
+    if not index.is_file():
+        raise HTTPException(status_code=404, detail="Frontend build not found")
+    return FileResponse(index, headers={"Cache-Control": "no-cache"})

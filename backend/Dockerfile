@@ -2,18 +2,23 @@
 # =============================================================================
 # Valam AI backend — production image (multi-stage).
 #
-# Stage 1 (builder): build a self-contained venv from pinned requirements.txt
-#                    AND bake the Whisper ASR weights into the image, so the
-#                    first /voice/query request never pays a download cost.
-# Stage 2 (runtime): slim image with only ffmpeg + libgomp1, the venv, the app
-#                    (incl. app/ml_models/*), and the pre-baked Whisper cache.
-#                    Runs as a non-root user.
+# Stage 1 (builder): build a self-contained venv from pinned requirements.txt.
+# Stage 2 (runtime): slim image with only ffmpeg + libgomp1, the venv, and the
+#                    app (incl. app/ml_models/*). Runs as a non-root user.
 #
 # Build context = ./backend  (see backend/.dockerignore for what is excluded).
 #   docker build -t valam-backend:latest ./backend
 #
 # NOTE: the model weights are ~72 MB tracked in git; torch CPU wheels are large,
 # so the final image is ~2 GB. That is expected for an ML serving image.
+#
+# Deploy target: Oracle Cloud A1.Flex (ARM64, Ampere). python:3.12.13-slim-
+# bookworm is a multi-arch base image, and every pinned dependency publishes a
+# manylinux aarch64 wheel (verified against PyPI), so an ARM node pulls
+# arm64 layers automatically — no platform pin needed. The container binds to
+# $PORT (default 8080); run it behind Caddy (HTTPS termination) with the env
+# vars from .env.example. uvicorn keeps --proxy-headers/--forwarded-allow-ips
+# to honor X-Forwarded-* correctly behind Caddy's reverse proxy.
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -44,24 +49,14 @@ RUN pip install --upgrade pip wheel
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-# --- Bake Whisper weights into the image -----------------------------------
-# whisper.load_model() with the default download_root writes to
-# $HOME/.cache/whisper/<size>.pt. We bake the three sizes the config supports
-# (tiny = fast, base = balanced/default, small = best Tamil) so the operator can
-# switch sizes via WHISPER_MODEL_SIZE with zero first-request penalty. Comment
-# out the sizes you don't ship to shrink the image (~75 MB each).
-ENV HOME=/home/appuser
-RUN mkdir -p /home/appuser/.cache \
- && python -c "import whisper; [whisper.load_model(m) for m in ('tiny', 'base')]"
-
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime
 # ---------------------------------------------------------------------------
 FROM python:3.12.13-slim-bookworm AS runtime
 
 # Runtime system deps only:
-#   ffmpeg  -> Whisper audio decoding + ffprobe duration checks (app/validation.py)
-#   libgomp1-> OpenMP runtime required by torch / numba (llvmlite)
+#   ffmpeg  -> audio duration checks via ffprobe (app/validation.py)
+#   libgomp1-> OpenMP runtime required by the torch CPU wheels
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg libgomp1 \
  && rm -rf /var/lib/apt/lists/*
@@ -83,9 +78,8 @@ ENV PYTHONUNBUFFERED=1 \
     VECLIB_MAXIMUM_THREADS=1 \
     NUMEXPR_NUM_THREADS=1
 
-# Bring in the venv and the baked Whisper cache from the builder.
+# Bring in the venv from the builder.
 COPY --from=builder /opt/venv /opt/venv
-COPY --from=builder /home/appuser/.cache /home/appuser/.cache
 
 WORKDIR /app
 # App source (iml. model weights under app/ml_models/) — .dockerignore keeps
@@ -98,14 +92,22 @@ RUN mkdir -p /app/logs /app/db /app/app/temp_uploads /app/app/static/voice_respo
 
 USER appuser
 
-EXPOSE 8000
+# The container listens on $PORT (default 8080); expose it for orchestration.
+EXPOSE 8080
 
-# Readiness probe for orchestrators (and `docker compose ps` health).
+# Readiness probe for orchestrators (and `docker compose ps` health). Uses the
+# same $PORT the server binds to — useful for `docker run` sanity checks.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health').status==200 else 1)"
+  CMD-SHELL python -c "import urllib.request,sys,os; p=os.environ.get('PORT','8080'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/api/v1/health').status==200 else 1)"
 
-# Production ASGI server. Workers are configurable: 2 is safe once DATABASE_URL
-# points at Postgres. On the default SQLite (single-writer) + in-memory rate
-# limiter setup, set UVICORN_WORKERS=1 (see docker-compose.yml / docs/DEPLOY_RUNBOOK.md).
-ENV UVICORN_WORKERS=2
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS} --proxy-headers --forwarded-allow-ips '*'"]
+# Production ASGI server. Bind to $PORT (default 8080), same shape on every
+# host (Oracle VM, docker compose, Cloud Run).
+# Single worker on purpose:
+#   * slowapi's rate limiter is IN-MEMORY and per-worker — 1 worker keeps each
+#     per-IP limit strict and global instead of being partitioned N ways.
+#   * stays inside Neon's connection budget (each worker owns its own SQLAlchemy
+#     pool; see app/database.py pool_size=1 / max_overflow=2).
+# The external Postgres must come from DATABASE_URL — the runtime filesystem is
+# EPHEMERAL, so the default SQLite db would reset on every cold start.
+ENV UVICORN_WORKERS=1
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers ${UVICORN_WORKERS} --proxy-headers --forwarded-allow-ips '*'"]

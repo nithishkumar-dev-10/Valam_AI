@@ -2,10 +2,7 @@ import io
 import json
 import threading
 
-import torch
-import torch.nn as nn
 from PIL import Image
-from torchvision import models, transforms
 
 from app.config import DISEASE_MODEL_PATH, DISEASE_CLASSES_PATH
 from app.utils.logger import logger
@@ -25,6 +22,14 @@ class DiseaseService:
         with self._lock:
             if self.model is not None or self._load_error:
                 return
+
+            # torch / torchvision are the two heaviest imports in the process
+            # (~286 MB). Kept INSIDE the lazy-load path so a process that never
+            # serves a disease photo pays nothing for them at startup (memory-
+            # constrained hosts / Cloud Run cold starts).
+            import torch
+            import torch.nn as nn
+            from torchvision import models, transforms
 
             try:
                 with open(DISEASE_CLASSES_PATH) as f:
@@ -63,6 +68,9 @@ class DiseaseService:
             raise RuntimeError(
                 "Disease model is unavailable (failed to load). Please try again later."
             )
+        # Already in sys.modules after _ensure_loaded(); import is a zero-cost
+        # registry lookup at this point, kept local to avoid a startup import.
+        import torch
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         tensor = self.transform(img).unsqueeze(0)
         with torch.no_grad():

@@ -30,9 +30,9 @@ class ModelResult(BaseModel):
     frontend's ModelCard knows which card to render. Disease and pest results
     reuse the same object with only the subset of fields they actually set.
     """
-    model: str                                        # "crop" | "disease" | "pest"
+    model: str                                        # "crop" | "disease" | "pest" | "weed"
     predicted_crop: Optional[str] = None              # crop only
-    predicted_class: Optional[str] = None             # disease / pest (and crop keep null)
+    predicted_class: Optional[str] = None             # disease / pest / weed (crop keeps null)
     confidence: float
     confidence_label: str                             # "high" | "medium" | "low"
     soil_source: Optional[str] = None                 # crop only
@@ -73,6 +73,7 @@ class UnifiedVoiceResponse(BaseModel):
     crop_result: Optional[CropOutput] = None
     disease_result: Optional[DiseaseOutput] = None
     pest_result: Optional[WeedPestOutput] = None
+    weed_result: Optional[WeedPestOutput] = None
 
 
 class VoiceQueryError(BaseModel):

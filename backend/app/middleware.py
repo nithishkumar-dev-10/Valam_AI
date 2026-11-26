@@ -5,7 +5,9 @@ Three pieces of middleware, applied in main.py:
 
 * SecurityHeadersMiddleware — defence-in-depth response headers (belt-and-
   braces even behind nginx, which also sets them: a direct hit on :8000 from
-  inside the VM gets the same protection).
+  inside the VM gets the same protection). API/JSON responses keep the locked-
+  down CSP; HTML served for the Vite SPA gets a CSP that actually lets the
+  bundle, styles and fonts load.
 * BodySizeLimitMiddleware — cheap Content-Length guard so nobody can POST a
   10 GB JSON body at an auth/voice field before parsing even starts (real
   upload size limits live in app/validation.py).
@@ -32,18 +34,48 @@ logger = get_logger()
 # Nearest-neighbour cloud/edge proxies may still need these to be conservative:
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",  # FastAPI never renders HTML; nothing may frame it
+    "X-Frame-Options": "DENY",  # nothing may frame the API or the SPA
     "Referrer-Policy": "strict-origin-when-cross-origin",
     # Ratio-header XSS / old-school sniffers can't be tricked into treating a
     # JSON/audio response as executable HTML.
     "X-XSS-Protection": "0",
-    # This API serves only JSON/audio, never HTML documents, so a locked-down
-    # CSP costs nothing and blocks any accidental HTML-like body (reflected
-    # vectors, error pages rendered inline by a future proxy).
-    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-site",
 }
+
+# JSON/audio endpoints emit no markup of their own — keep the original locked-
+# down policy there so a future reflected vector can't render inline HTML.
+_API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+
+# The SPA document DOES need to load its own JS/CSS (Vite also emits inline
+# style attributes via framer-motion) plus the Google Fonts in index.html.
+# connect-src 'self' is enough because the built client calls the API on the
+# SAME origin (VITE_API_BASE_URL is unset in production).
+_SPA_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com data:; "
+    "img-src 'self' data: blob:; "
+    "media-src 'self' data: blob:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; base-uri 'self'"
+)
+
+# Swagger/redoc load their UI from public CDNs; keep dev docs usable without
+# loosening the policy for the real app.
+_DOCS_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; base-uri 'self'"
+)
+_DOCS_PATHS = ("/docs", "/redoc")
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -51,6 +83,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         for key, value in _SECURITY_HEADERS.items():
             response.headers.setdefault(key, value)
+
+        content_type = response.headers.get("content-type", "").lower()
+        if request.url.path.startswith(_DOCS_PATHS):
+            csp = _DOCS_CSP
+        elif content_type.startswith("text/html"):
+            csp = _SPA_CSP
+        else:
+            csp = _API_CSP
+        response.headers.setdefault("Content-Security-Policy", csp)
         return response
 
 

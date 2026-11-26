@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 
 # Load backend/.env FIRST, before any os.getenv() below. Several settings
-# (WHISPER_MODEL_SIZE, DEFAULT_VOICE_LANGUAGE, VOICE_AUDIO_RETENTION_DAYS,
+# (DEFAULT_VOICE_LANGUAGE, VOICE_AUDIO_RETENTION_DAYS,
 # MAX_IMAGE_PIXELS) are read further down, so calling this late silently pinned
 # them to their defaults on the systemd deployment path, which relies on .env
 # (the unit has no EnvironmentFile=). Real process env still wins over .env
@@ -25,6 +25,22 @@ DEEP_WEED_CLASSES_PATH = ML_MODELS_DIR / "deepweeds_classes.json"
 STATIC_DIR = BASE_DIR / "app" / "static"
 VOICE_AUDIO_OUTPUT_DIR = STATIC_DIR / "voice_responses"
 VOICE_AUDIO_RETENTION_DAYS = int(os.getenv("VOICE_AUDIO_RETENTION_DAYS", "30"))
+# S3-compatible object storage for TTS voice clips, via Cloudflare R2.
+# Multi-instance hosts (Oracle VM, Cloud Run, K8s) do NOT share a filesystem, so
+# on any multi-instance deploy audio written to the per-instance local
+# VOICE_AUDIO_OUTPUT_DIR can 404 when a different instance serves the same URL,
+# and clips vanish on redeploy. Empty = write to local disk (single-instance /
+# local dev only). app/main.py logs a WARNING at startup if production is
+# running without this set.
+#
+# R2 is AWS S3 protocol-compatible, so the storage layer talks to it via boto3:
+#   R2_ENDPOINT_URL       https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+#   R2_ACCESS_KEY_ID      from "R2 > Manage R2 API Tokens"
+#   R2_SECRET_ACCESS_KEY  (same)
+AUDIO_STORAGE_BUCKET = os.getenv("AUDIO_STORAGE_BUCKET", "").strip()
+R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL", "").strip()
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "").strip()
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "").strip()
 TEMP_UPLOAD_DIR = BASE_DIR / "app" / "temp_uploads"
 # Decompression-bomb guard: reject images larger than this many pixels BEFORE
 # any decode, so a tiny 15 MB file can't balloon into gigabytes of RAM. PIL's
@@ -32,8 +48,13 @@ TEMP_UPLOAD_DIR = BASE_DIR / "app" / "temp_uploads"
 MAX_IMAGE_PIXELS = int(os.getenv("MAX_IMAGE_PIXELS", "16000000"))
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "backend.log"
-WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "tiny")  # was "base"
 DEFAULT_VOICE_LANGUAGE = os.getenv("DEFAULT_VOICE_LANGUAGE", "ta")
+
+# Groq Whisper API key for STT. The whisper model is served by Groq
+# (whisper-large-v3) rather than loaded locally, so no Whisper weights are
+# baked into the image and no WHISPER_MODEL_SIZE knob exists anymore.
+# Transcription fails loudly at call time (not boot) if this is unset.
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 NOMINATIM_USER_AGENT = os.getenv(
@@ -41,18 +62,37 @@ NOMINATIM_USER_AGENT = os.getenv(
     "ValamAI/0.1 (crop-recommendation prototype)",
 )
 
-# Comma-separated list of allowed CORS origins (the frontend is a separate
-# service: the sibling frontend/ repo today, a Flutter app later). Override
-# via env to add production domains without a code change:
+# App environment ("development" | "production"). Must be defined BEFORE
+# CORS_ORIGINS below: production defaults to PUBLIC_APP_URL (no localhost).
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+
+# Comma-separated list of allowed CORS origins for CROSS-origin clients (the
+# Capacitor WebView / future mobile apps). The web app itself is now served by
+# this API on the same origin, so it never needs CORS; the entries below only
+# matter when a different origin calls the API. Override via env to add more:
 #   CORS_ORIGINS="https://app.example.com,https://admin.example.com"
-CORS_ORIGINS = [
-    o.strip()
-    for o in os.getenv(
-        "CORS_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
-    ).split(",")
-    if o.strip()
-]
+#
+# In PRODUCTION there is no localhost fallback: the default is the public
+# same-origin URL (https://valam-ai.onrender.com) so Render starts cleanly, and
+# extra origins can be added via CORS_ORIGINS. In development a localhost list
+# is used so a separately-run Vite dev server works out of the box.
+PUBLIC_APP_URL = os.getenv("PUBLIC_APP_URL", "https://valam-ai.onrender.com").rstrip("/")
+
+if ENVIRONMENT == "production":
+    CORS_ORIGINS = [
+        o.strip()
+        for o in (os.getenv("CORS_ORIGINS") or PUBLIC_APP_URL).split(",")
+        if o.strip()
+    ]
+else:
+    CORS_ORIGINS = [
+        o.strip()
+        for o in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
+        ).split(",")
+        if o.strip()
+    ]
 
 # Default SQLite file lives in backend/db/ (app/database.py creates the folder
 # on import). Override DATABASE_URL for Postgres — nothing else changes.
@@ -99,11 +139,6 @@ MAX_AUDIO_UPLOAD_MB = int(os.getenv("MAX_AUDIO_UPLOAD_MB", "15"))
 # decode) so a long low-bitrate clip can't force a multi-minute Whisper decode.
 MAX_AUDIO_DURATION_SECONDS = int(os.getenv("MAX_AUDIO_DURATION_SECONDS", "300"))
 
-# App environment ("development" | "production"). Swagger docs/redoc are
-# disabled in production (app.main sets docs_url=None) so the API surface
-# isn't publicly browsable on the live server.
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
-
 # Optional admin surface. When set, enables GET /api/v1/admin/logs so you can
 # read recent log lines with a curl one-liner instead of SSHing. Long random
 # value; keep it in .env, never in the frontend.
@@ -131,6 +166,12 @@ def validate_config():
     """Fail loudly at startup when required env vars are missing. Never run
     insecurely with a silent placeholder secret."""
     missing = [f"  {var} — {hint}" for var, hint in REQUIRED_ENV_VARS.items() if not os.getenv(var)]
+    if ENVIRONMENT == "production" and not CORS_ORIGINS:
+        missing.append(
+            "  CORS_ORIGINS — empty in production. Same-origin web requests need "
+            "no CORS, but cross-origin/mobile clients do. Set the public URL(s), "
+            'e.g. CORS_ORIGINS="https://valam-ai.onrender.com"'
+        )
     if SECRET_KEY is not None and len(SECRET_KEY) < 32:
         missing.append(
             "  SECRET_KEY — too short (must be ≥ 32 chars). Generate with: "
