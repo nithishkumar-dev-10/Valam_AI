@@ -22,6 +22,7 @@ from app.utils.logger import logger
 
 from app.services.dl.intent_parser import parse_intent
 from app.services.dl.disease_service import disease_service
+from app.services.dl.deep_weed_service import deep_weed_service
 
 from app.services.external.geocoding import reverse_geocode
 from app.services.external.weather_fetch import fetch_weather_features
@@ -146,6 +147,16 @@ def _run_pest(image_bytes: bytes) -> dict:
     }
 
 
+def _run_weed(image_bytes: bytes) -> dict:
+    class_name, confidence = deep_weed_service.predict(image_bytes)
+    return {
+        "model": "weed",
+        "predicted_class": _pretty_class(class_name),
+        "confidence": confidence,
+        "confidence_label": _confidence_label(confidence),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Step 3 — branching
 # ---------------------------------------------------------------------------
@@ -179,6 +190,14 @@ def _plan_models(intent, has_image: bool, has_location: bool) -> list[str]:
             )
         return ["pest"]
 
+    if intent == "weed_check":
+        if not has_image:
+            raise PipelineInputError(
+                "A photo of the weed is required to identify it. "
+                "Please attach a close-up image and try again."
+            )
+        return ["weed"]
+
     # ---- unclear, or no voice at all: run every model the inputs support ----
     if not has_image and not has_location:
         raise PipelineInputError(
@@ -207,6 +226,7 @@ def _summarize(results: list[dict], lang: str) -> str:
     crop = next((r for r in results if r["model"] == "crop"), None)
     disease = next((r for r in results if r["model"] == "disease"), None)
     pest = next((r for r in results if r["model"] == "pest"), None)
+    weed = next((r for r in results if r["model"] == "weed"), None)
 
     sentences = []
 
@@ -266,6 +286,15 @@ def _summarize(results: list[dict], lang: str) -> str:
             sentences.append(
                 f"The photo shows {pest['predicted_class']} ({_pct(pest['confidence'])}% confidence)."
             )
+    elif weed:
+        if lang == "ta":
+            sentences.append(
+                f"உங்கள் புகைப்படத்தில் {weed['predicted_class']} களை ({_pct(weed['confidence'])}%) தெரிகிறது."
+            )
+        else:
+            sentences.append(
+                f"The photo shows the weed {weed['predicted_class']} ({_pct(weed['confidence'])}% confidence)."
+            )
 
     return " ".join(sentences)
 
@@ -291,7 +320,8 @@ async def run_pipeline(
       {
         "intent", "transcribed_text", "detected_language", "language_probability",
         "results": [ModelResult dicts in run order],
-        "crop_result" | "disease_result" | "pest_result": per-model dicts (None if not run),
+        "crop_result" | "disease_result" | "pest_result" | "weed_result":
+          per-model dicts (None if not run),
         "summary": str (in the response language),
         "summary_language": str,
       }
@@ -324,7 +354,7 @@ async def run_pipeline(
     # 3. branch -> which models run (raises clear errors for missing inputs)
     plan = _plan_models(intent, has_image, has_location)
 
-    # 4. run each model in plan order (crop/disease/pest)
+    # 4. run each model in plan order (crop/disease/pest/weed)
     results = []
     for key in plan:
         if key == "crop":
@@ -333,6 +363,8 @@ async def run_pipeline(
             results.append(await run_in_threadpool(_run_disease, image_bytes))
         elif key == "pest":
             results.append(await run_in_threadpool(_run_pest, image_bytes))
+        elif key == "weed":
+            results.append(await run_in_threadpool(_run_weed, image_bytes))
 
     # 5. response language: override > detected > English
     out_lang = lang_override if lang_override in VALID_LANGS else (
@@ -351,6 +383,7 @@ async def run_pipeline(
         "crop_result": next((r for r in results if r["model"] == "crop"), None),
         "disease_result": next((r for r in results if r["model"] == "disease"), None),
         "pest_result": next((r for r in results if r["model"] == "pest"), None),
+        "weed_result": next((r for r in results if r["model"] == "weed"), None),
         "summary": summary,
         "summary_language": out_lang,
     }

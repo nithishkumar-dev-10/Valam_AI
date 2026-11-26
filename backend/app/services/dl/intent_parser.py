@@ -7,6 +7,7 @@ Classifies a spoken/written query into exactly one of:
     crop_recommendation  -> needs lat/long (soil + weather pipeline)
     disease_check        -> needs a leaf photo
     pest_check           -> needs a field/leaf photo
+    weed_check           -> needs a field photo (DeepWeeds CNN)
     unclear              -> keyword list matched nothing
 
 Strategy:
@@ -20,9 +21,13 @@ Strategy:
   like "my crop has disease" routes to disease_check, not crop_recommendation.
 """
 
-INTENTS = ("crop_recommendation", "disease_check", "pest_check", "unclear")
+INTENTS = ("crop_recommendation", "disease_check", "pest_check", "weed_check", "unclear")
 
 ENGLISH_KEYWORDS = {
+    "weed_check": [
+        "weed", "weeds", "grass", "grasses", "invasive", "unwanted plant",
+        "unwanted plants", "broadleaf",
+    ],
     "disease_check": [
         "disease", "sick", "infected", "infection",
         "spots", "spot", "wilting", "wilt", "blight", "rust", "rot",
@@ -41,6 +46,9 @@ ENGLISH_KEYWORDS = {
 }
 
 TAMIL_KEYWORDS = {
+    "weed_check": [
+        "களை", "களைகள்", "புல்", "புற்கள்", "முட்செடி",
+    ],
     "disease_check": [
         "நோய்", "நோயால்", "நோயுற்ற", "ரோய்", "வாடல்", "வாடும்",
         "புள்ளி", "புள்ளிகள்", "அழுகல்", "அழுகி",
@@ -56,13 +64,13 @@ TAMIL_KEYWORDS = {
     ],
 }
 
-# Match HIGH-priority (pest/disease) keyword lists first, then crop, so a
+# Match HIGH-priority (pest/disease/weed) keyword lists first, then crop, so a
 # phrase like "my crop has disease" or "worms on my crop leaves" routes to
 # the right image check instead of crop_recommendation. Note: bare
 # "leaf"/"leaves" deliberately are NOT keywords — "check this leaf" on its
-# own is ambiguous (unknown disease vs pest) and should come back as
+# own is ambiguous (unknown disease vs pest vs weed) and should come back as
 # "unclear", letting the image+model fallback path pick both checks.
-_PRIORITY = ("pest_check", "disease_check", "crop_recommendation")
+_PRIORITY = ("pest_check", "disease_check", "weed_check", "crop_recommendation")
 
 # Curated "forgiving stems": these are the ONLY keywords allowed to match via
 # consonant-skeleton (see _tamil_consonants/_seq_within below). Whisper's
@@ -75,6 +83,7 @@ TAMIL_SKELETON_STEMS = {
     "crop_recommendation": ["பயிர", "வயல"],
     "pest_check": ["பூச"],
     "disease_check": ["ரோய்"],
+    "weed_check": ["களை"],
 }
 
 

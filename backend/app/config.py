@@ -63,23 +63,25 @@ NOMINATIM_USER_AGENT = os.getenv(
 )
 
 # App environment ("development" | "production"). Must be defined BEFORE
-# CORS_ORIGINS below: in production the origin allowlist has NO dev fallback.
+# CORS_ORIGINS below: production defaults to PUBLIC_APP_URL (no localhost).
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 
-# Comma-separated list of allowed CORS origins (the frontend is a separate
-# service: the sibling frontend/ repo today, a Flutter app later). Override
-# via env to add production domains without a code change:
+# Comma-separated list of allowed CORS origins for CROSS-origin clients (the
+# Capacitor WebView / future mobile apps). The web app itself is now served by
+# this API on the same origin, so it never needs CORS; the entries below only
+# matter when a different origin calls the API. Override via env to add more:
 #   CORS_ORIGINS="https://app.example.com,https://admin.example.com"
 #
-# In PRODUCTION there is no hardcoded localhost fallback: the list is read
-# strictly from the env var, and validate_config() refuses to start if it is
-# empty (an empty allowlist would silently block every cross-origin request,
-# including the browser's credentialed auth calls). In development a localhost
-# list is used so the Vite dev server works out of the box.
+# In PRODUCTION there is no localhost fallback: the default is the public
+# same-origin URL (https://valam-ai.onrender.com) so Render starts cleanly, and
+# extra origins can be added via CORS_ORIGINS. In development a localhost list
+# is used so a separately-run Vite dev server works out of the box.
+PUBLIC_APP_URL = os.getenv("PUBLIC_APP_URL", "https://valam-ai.onrender.com").rstrip("/")
+
 if ENVIRONMENT == "production":
     CORS_ORIGINS = [
         o.strip()
-        for o in os.getenv("CORS_ORIGINS", "").split(",")
+        for o in (os.getenv("CORS_ORIGINS") or PUBLIC_APP_URL).split(",")
         if o.strip()
     ]
 else:
@@ -166,9 +168,9 @@ def validate_config():
     missing = [f"  {var} — {hint}" for var, hint in REQUIRED_ENV_VARS.items() if not os.getenv(var)]
     if ENVIRONMENT == "production" and not CORS_ORIGINS:
         missing.append(
-            "  CORS_ORIGINS — required in production (no localhost fallback). "
-            "Comma-separated list of real frontend origins, e.g. "
-            'CORS_ORIGINS="https://valam.in,https://app.valam.in"'
+            "  CORS_ORIGINS — empty in production. Same-origin web requests need "
+            "no CORS, but cross-origin/mobile clients do. Set the public URL(s), "
+            'e.g. CORS_ORIGINS="https://valam-ai.onrender.com"'
         )
     if SECRET_KEY is not None and len(SECRET_KEY) < 32:
         missing.append(

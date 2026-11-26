@@ -88,7 +88,7 @@ refuses to start without `SECRET_KEY`. Model it on `backend/.env.example`:
 sudo -u valamuser bash -c 'cat > /opt/valam/backend/.env <<EOF
 SECRET_KEY=<long random — python -c "import secrets;print(secrets.token_urlsafe(64))">
 WEATHER_API_KEY=<openweather api key>
-CORS_ORIGINS=https://app.valam.in,https://admin.valam.in,http://localhost:5173
+CORS_ORIGINS=https://app.valam.in,https://admin.valam.in
 DATABASE_URL=
 ADMIN_ACCESS_KEY=<long random string for the /admin/logs endpoint>
 LOGIN_RATE_PER_MINUTE=5/minute
@@ -101,8 +101,9 @@ DEFAULT_VOICE_LANGUAGE=ta
 EOF
 chmod 600 /opt/valam/backend/.env'
 ```
-> `CORS_ORIGINS` must include your **real production origin(s)**; localhost
-> entries are dev-only.
+> `CORS_ORIGINS` is only for **cross-origin** clients (WebView/admin app) and
+> must list real production origins; localhost entries are dev-only. The web
+> bundle served from FastAPI's own origin needs no CORS entry.
 
 ---
 ## 5. App as a persistent service

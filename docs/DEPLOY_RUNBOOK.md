@@ -79,6 +79,8 @@ UVICORN_WORKERS=1               # MUST be 1 on SQLite; 2+ only on Postgres
 sudo chmod 600 /opt/valam/backend/.env
 ```
 > Do **not** keep `http://localhost:5173` in production `CORS_ORIGINS`.
+> The web bundle is served from the backend's own origin (`frontend/dist`), so
+> it needs no CORS entry — list only genuinely cross-origin clients.
 
 ---
 
@@ -185,11 +187,10 @@ UptimeRobot monitor on `/api/v1/health` (expect 200).
 #    (both git-ignored). Skip if you already have the keystore.
 ./scripts/gen_android_keystore.sh
 
-# 2. Build the web bundle, copy it into the Android project, sign the AAB.
+# 2. Build the Capacitor bundle (explicit API origin), copy it into Android, sign.
 cd frontend
 npm ci
-npm run build                 # bakes VITE_API_BASE_URL=https://api.valam.in
-npx cap sync android
+npm run cap:sync             # vite build --mode capacitor (uses .env.capacitor)
 cd android && ./gradlew bundleRelease
 ```
 

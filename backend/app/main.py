@@ -7,6 +7,7 @@ import logging
 import time
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -15,9 +16,10 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-from fastapi import FastAPI, Request
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
@@ -41,11 +43,30 @@ from app.middleware import AccessLogMiddleware, SecurityHeadersMiddleware, BodyS
 
 logger = logging.getLogger("valam_ai.main")
 
-# Creates the farmers table on startup if it doesn't exist yet.
-# Fine for v1 -- swap to Alembic migrations before this has real user data.
-# NOTE: called from lifespan (not module import) so a cold/detached Postgres
-# can't crash the worker before uvicorn binds its socket. See
-# _create_tables_with_retry().
+# The built Vite SPA lives in ../frontend/dist relative to THIS file (not the
+# process CWD), so Render/systemd/docker can start uvicorn from any directory.
+# FRONTEND_DIST_DIR allows hosts with a different build layout to override it.
+FRONTEND_DIST_DIR = Path(
+    os.getenv(
+        "FRONTEND_DIST_DIR",
+        str(Path(__file__).resolve().parents[2] / "frontend" / "dist"),
+    )
+).resolve()
+
+
+def _safe_frontend_file(full_path: str) -> Path | None:
+    """Resolve a requested path inside FRONTEND_DIST_DIR, or None if it escapes
+    the build directory / does not exist. Prevents `..` path traversal."""
+    if not full_path:
+        return None
+    candidate = (FRONTEND_DIST_DIR / full_path).resolve()
+    try:
+        candidate.relative_to(FRONTEND_DIST_DIR)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
 def _create_tables() -> None:
     """Create any missing tables — safe to run from MULTIPLE uvicorn workers.
 
@@ -266,14 +287,14 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
             logger.warning("Could not attach rate-limit headers: %s", exc)
     return response
 
-# CORS: the frontend is a SEPARATE service (sibling ../frontend repo /
-# eventual Flutter app) talking to this API over HTTP. Origins come from the
-# env-driven CORS_ORIGINS (comma-separated); localhost values are dev-only
-# defaults that production .env replaces.
+# CORS: the web bundle is served by this app on the SAME origin, so it needs no
+# CORS at all. CORS_ORIGINS (comma-separated) is only for genuinely cross-origin
+# clients (Capacitor WebView / separate admin app); dev defaults cover the Vite
+# dev server when it is run separately.
 #
 # allow_credentials=True is REQUIRED now that the refresh token lives in an
-# httpOnly cookie: the SPA's cross-origin fetch must carry credentials for the
-# cookie to be stored/sent, and the browser rejects credentialed requests when
+# httpOnly cookie: a cross-origin client must send credentials for the cookie to
+# be stored/returned, and the browser rejects credentialed requests when
 # allow_origins is "*". It stays an explicit allowlist (never a wildcard).
 app.add_middleware(
     CORSMiddleware,
@@ -298,6 +319,22 @@ app.add_middleware(BodySizeLimitMiddleware)
 # instance) clips can 404 once the serving instance differs from the generating
 # one — see the AUDIO_STORAGE_BUCKET startup warning in lifespan().
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Vite emits hashed JS/CSS into dist/assets. Mount it explicitly so asset URLs
+# are served by StaticFiles (correct MIME types + 404s for missing files) and
+# never fall through to the SPA index.html. Guard the mount for backend-only
+# checkouts where `npm run build` has not produced dist/ yet.
+if (FRONTEND_DIST_DIR / "assets").is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(FRONTEND_DIST_DIR / "assets")),
+        name="frontend-assets",
+    )
+else:
+    logger.warning(
+        "Vite assets directory not found at %s — run `npm --prefix frontend run build`",
+        FRONTEND_DIST_DIR / "assets",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -335,8 +372,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 # ---------------------------------------------------------------------------
-# Versioned routers — all under /api/v1. (Root "/" stays unversioned as a
-# legacy liveness surface.)
+# Versioned routers — all under /api/v1. Root "/" and other browser paths are
+# handled by the SPA fallback registered at the very end of this module.
 # ---------------------------------------------------------------------------
 
 API_V1 = "/api/v1"
@@ -348,11 +385,6 @@ app.include_router(voice.router, prefix=API_V1)
 app.include_router(pest.router, prefix=API_V1)
 if ADMIN_ACCESS_KEY:
     app.include_router(admin.router, prefix=API_V1)
-
-
-@app.get("/")
-def root():
-    return {"status": "Valam AI backend is running"}
 
 
 @app.get(f"{API_V1}/health", tags=["Health"], summary="Liveness + DB probe",
@@ -374,3 +406,57 @@ def health_check():
             "database": "ok" if db_ok else "unreachable",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# SPA fallback — MUST stay last. FastAPI matches routes in registration order,
+# so every API endpoint, /static and /assets mount, and /docs, /redoc and
+# /openapi.json are resolved before this catch-all gets a chance.
+# ---------------------------------------------------------------------------
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str, request: Request):
+    """Serve index.html for browser routes (/, /crop, /voice, ...).
+
+    Unknown /api/** and docs paths still get a JSON 404, and a missing hashed
+    asset (e.g. /assets/gone.js) never gets an HTML shell.
+    """
+    # The catch-all would otherwise suppress Starlette's usual trailing-slash
+    # redirect for real API/docs routes (e.g. /api/v1/health/).
+    if full_path.endswith("/") and full_path.strip("/"):
+        canonical = "/" + full_path.strip("/")
+        if canonical.startswith(("/api", "/docs", "/redoc")) and any(
+            getattr(route, "path", None) == canonical for route in app.routes
+        ):
+            query = f"?{request.url.query}" if request.url.query else ""
+            return RedirectResponse(url=f"{canonical}{query}", status_code=307)
+
+    path = full_path.strip("/")
+    if (
+        path == "api"
+        or path.startswith("api/")
+        or path in {"docs", "redoc", "openapi.json"}
+    ):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    # Backend-only checkout (no frontend build): keep the legacy liveness body
+    # at "/", and 404 everything else rather than pretending to serve the SPA.
+    if not FRONTEND_DIST_DIR.is_dir():
+        if not path:
+            return {"status": "Valam AI backend is running"}
+        raise HTTPException(status_code=404, detail="Frontend build not found")
+
+    # Serve real files that live at the root of dist/ (favicon, manifest, ...).
+    candidate = _safe_frontend_file(path) if path else None
+    if candidate is not None:
+        headers = {"Cache-Control": "no-cache"} if candidate.name == "index.html" else None
+        return FileResponse(candidate, headers=headers)
+
+    # A path with a file extension is an asset request, not a client route —
+    # returning index.html here would produce a MIME-type error in the browser.
+    if Path(path).suffix:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    index = FRONTEND_DIST_DIR / "index.html"
+    if not index.is_file():
+        raise HTTPException(status_code=404, detail="Frontend build not found")
+    return FileResponse(index, headers={"Cache-Control": "no-cache"})

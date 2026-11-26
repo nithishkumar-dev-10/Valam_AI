@@ -7,7 +7,6 @@ import onnxruntime as ort
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
-from torchvision import transforms
 
 from app.config import ML_MODELS_DIR, PREDICT_RATE_PER_MINUTE
 from app.schemas.prediction import WeedPestOutput
@@ -51,6 +50,9 @@ class PestService:
                 )
                 with open(PEST_CLASSES_PATH) as f:
                     self._classes = json.load(f)
+                # torchvision import lives here (not module top): torchvision
+                # pulls in torch (~286 MB), which must not load at startup.
+                from torchvision import transforms
                 # same as training transform (no augmentation, plain 224x224 resize)
                 self._transform = transforms.Compose([
                     transforms.Resize((224, 224)),

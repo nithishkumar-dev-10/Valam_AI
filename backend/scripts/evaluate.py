@@ -5,7 +5,9 @@ Combined evaluation for all 4 Valam_AI models:
   1. crop_recommender.pkl   (sklearn tabular classifier)
   2. disease_cnn.pt         (MobileNetV2 CNN, PlantVillage dataset)
   3. deepweeds_model.pt     (ResNet18 CNN, DeepWeeds dataset)
-  4. pest_model.pt          (MobileNetV2 CNN, pest dataset)
+  4. pest_model.onnx        (MobileNetV2 CNN, pest dataset — evaluated from the
+                             ONNX artifact; the training-only pest_model.pt is
+                             no longer kept)
 
 Run:
     python scripts/evaluate.py                       # run all
@@ -204,15 +206,6 @@ def build_deepweeds_model(num_classes):
     return model
 
 
-def build_pest_model(num_classes):
-    import torch.nn as nn
-    from torchvision import models
-
-    model = models.mobilenet_v2(weights=None)
-    model.classifier[1] = nn.Linear(1280, num_classes)
-    return model
-
-
 def load_state_dict(model_path, build_model, num_classes, device):
     import torch
 
@@ -384,14 +377,53 @@ def evaluate_deepweeds_model():
 
 # ---------------------------------------------------------------------------
 # 4. Pest CNN — flat class folders, no pre-made split
+# Serving loads pest_model.onnx (see app/routers/pest.py), so evaluate the
+# ONNX artifact here instead of torch state_dict weights — pest_model.pt is a
+# training-only artifact and is not shipped anymore.
 # ---------------------------------------------------------------------------
+def evaluate_onnx_image_model_no_split(
+    model_name, onnx_path, data_dir, class_names, test_size=0.2,
+    random_state=42,
+):
+    import onnxruntime as ort
+    from torch.utils.data import DataLoader, Subset
+    from torchvision import datasets, transforms
+    from sklearn.model_selection import train_test_split
+
+    transform = transforms.Compose(
+        [
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+
+    dataset = datasets.ImageFolder(data_dir, transform=transform)
+    indices = np.arange(len(dataset))
+    train_idx, test_idx = train_test_split(
+        indices, test_size=test_size, random_state=random_state,
+        stratify=dataset.targets,
+    )
+    loader = DataLoader(Subset(dataset, test_idx), batch_size=32, shuffle=False)
+
+    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    input_name = session.get_inputs()[0].name
+
+    y_true, y_pred = [], []
+    for images, labels in loader:
+        preds = session.run(None, {input_name: images.numpy()})[0].argmax(axis=1)
+        y_pred.extend(preds)
+        y_true.extend(labels.numpy())
+
+    names = class_names or [dataset.classes[i] for i in range(len(dataset.classes))]
+    return summarize(model_name, y_true, y_pred, names)
+
+
 def evaluate_pest_model():
-    device = pick_device()
     with open(ML_MODELS / "pest_classes.json") as f:
         class_names = json.load(f)
-    return evaluate_torch_image_model_no_split(
-        "pest_model", ML_MODELS / "pest_model.pt", DATA / "pest_data",
-        class_names, build_pest_model, device=device,
+    return evaluate_onnx_image_model_no_split(
+        "pest_model", ML_MODELS / "pest_model.onnx", DATA / "pest_data", class_names,
     )
 
 
