@@ -31,7 +31,7 @@ let accessToken: string | null = null;
 
 export const getAccessToken = () => accessToken;
 export const isAuthed = () => Boolean(accessToken);
-export function setAccessToken(token: string) {
+export function setAccessToken(token: string | null) {
   accessToken = token;
 }
 export function clearAccessToken() {
@@ -182,11 +182,18 @@ export const PredictAPI = {
       .then((r) => r.data),
 };
 
+/** Voice uploads are large; cap them so a stalled request cannot hang the UI. */
+const VOICE_TIMEOUT_MS = 20000;
+
 export const VoiceAPI = {
-  query: async (input: VoiceInput) => {
+  query: async (input: VoiceInput & { signal?: AbortSignal }): Promise<UnifiedVoiceResponse> => {
     const form = new FormData();
     if (input.audio) {
-      const ext = input.audio.type.includes("mp4") ? "m4a" : "webm";
+      // Preserve the recorder's real container/codec: Safari records MP4/AAC,
+      // Chrome/Firefox record WebM/Opus, Firefox may use Ogg. The backend also
+      // sniffs the magic bytes, but a correct filename/content-type helps.
+      const type = input.audio.type || "";
+      const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
       form.append("audio", input.audio, `recording.${ext}`);
     }
     if (input.image) form.append("image", input.image, input.image.name);
@@ -195,7 +202,8 @@ export const VoiceAPI = {
     form.append("lang", input.lang);
     return api
       .post<UnifiedVoiceResponse>("/voice/query", form, {
-        headers: { "Content-Type": "multipart/form-data" },
+        timeout: VOICE_TIMEOUT_MS,
+        signal: input.signal,
       })
       .then((r) => r.data);
   },

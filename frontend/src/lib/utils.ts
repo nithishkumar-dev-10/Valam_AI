@@ -70,6 +70,17 @@ export function fmtNumber(value: number, decimals = 0): string {
 export function apiErrorMessage(err: unknown): string {
   if (typeof err === "object" && err !== null) {
     const e = err as { response?: unknown; message?: string; code?: string };
+    // Prefer the backend's `detail` over Axios' generic status message.
+    const response = e.response as { data?: unknown; status?: number } | undefined;
+    const data = response?.data as { detail?: unknown } | undefined;
+    if (typeof data?.detail === "string" && data.detail.trim()) return data.detail;
+    if (Array.isArray(data?.detail)) {
+      const parts = data.detail
+        .map((d: { msg?: string }) => d?.msg)
+        .filter((m): m is string => Boolean(m));
+      if (parts.length) return parts.join("; ");
+    }
+    if (e.code === "ECONNABORTED") return "The server took too long to respond.";
     if (e.message) return e.message;
   }
   if (err instanceof Error && "response" in err) {

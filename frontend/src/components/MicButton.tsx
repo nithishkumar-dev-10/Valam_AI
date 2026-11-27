@@ -2,9 +2,9 @@ import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { IconMic } from "./Icons";
 import { cn } from "../lib/utils";
-import { SPRING } from "../lib/motion";
+import type { VoiceMetrics } from "../lib/audio";
 
-export type MicState = "idle" | "starting" | "listening" | "processing";
+export type MicState = "idle" | "starting" | "listening" | "processing" | "error";
 
 const BARS = [0.4, 0.9, 0.55, 1, 0.7, 1, 0.5, 0.85];
 
@@ -12,92 +12,107 @@ export function MicButton({
   state,
   disabled,
   onPress,
+  metrics,
   className,
 }: {
   state: MicState;
   disabled?: boolean;
   onPress: () => void;
+  metrics?: VoiceMetrics;
   className?: string;
 }) {
   const { t } = useTranslation();
+  const listening = state === "listening" || state === "starting";
   const label =
     state === "starting"
       ? t("mic.starting")
       : state === "listening"
-        ? t("mic.tapToStop")
+        ? `${t("mic.listening")} · ${t("mic.tapToStop")}`
         : state === "processing"
           ? t("mic.working")
-          : t("mic.tapAndSpeak");
+          : state === "error"
+            ? t("mic.tapToRetry")
+            : t("mic.tapAndSpeak");
+  const secondsLeft = Math.ceil((metrics?.remainingMs ?? 10000) / 1000);
 
   return (
     <div className={cn("relative grid place-items-center", className)}>
-      {/* Pulsing rings while listening */}
-      {state === "listening" && (
+      {/* Pulsing rings while listening — decorative, never blocks the tap. */}
+      {listening && (
         <>
           <motion.span
-            className="absolute h-36 w-36 rounded-full bg-leaf-500/25"
-            animate={{ scale: [1, 1.45], opacity: [0.55, 0] }}
-            transition={{ duration: 1.6, repeat: Infinity, ease: "easeOut" }}
+            aria-hidden="true"
+            className="pointer-events-none absolute h-36 w-36 rounded-full bg-leaf-500/25"
+            animate={{ scale: [1, 1.25, 1], opacity: [0.6, 0.15, 0.6] }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
           />
           <motion.span
-            className="absolute h-36 w-36 rounded-full bg-leaf-500/20"
-            animate={{ scale: [1, 1.6], opacity: [0.4, 0] }}
-            transition={{ duration: 1.6, repeat: Infinity, ease: "easeOut", delay: 0.5 }}
+            aria-hidden="true"
+            className="pointer-events-none absolute h-28 w-28 rounded-full border border-leaf-400/50"
+            animate={{ scale: [1, 1.15, 1] }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
           />
         </>
       )}
 
-      {state === "listening" && (
-        <div className="absolute bottom-2 flex h-6 items-end gap-[3px]">
-          {BARS.map((h, i) => (
-            <motion.span
-              key={i}
-              className="wave-dot w-[3px] rounded-full bg-leaf-600"
-              style={{ height: `${Math.round(h * 22)}px`, animationDelay: `${i * 0.09}s` }}
-            />
-          ))}
-        </div>
-      )}
-
-      {(state === "starting" || state === "processing") && (
-        <motion.span
-          className="absolute h-24 w-24 rounded-full border-2 border-leaf-300 border-t-leaf-600"
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1.1, repeat: Infinity, ease: "linear" }}
-        />
-      )}
-
-      <motion.button
+      <button
         type="button"
         onClick={onPress}
+        disabled={disabled}
         aria-label={label}
-        aria-busy={state === "processing"}
-        disabled={disabled || state === "processing"}
-        whileTap={{ scale: 0.9 }}
-        whileHover={{ scale: 1.04 }}
-        animate={
-          state === "idle"
-            ? { scale: [1, 1.035, 1] }
-            : { scale: 1 }
-        }
-        transition={
-          state === "idle"
-            ? { duration: 2.6, repeat: Infinity, ease: "easeInOut" }
-            : { duration: 0.2, ease: SPRING }
-        }
+        aria-pressed={listening}
+        title={label}
         className={cn(
-          "grid h-28 w-28 place-items-center rounded-full shadow-lift transition-colors duration-300",
-          state === "idle" && "bg-gradient-to-br from-pine-700 to-leaf-600 text-paper",
-          (state === "starting" || state === "listening") && "bg-leaf-600 text-paper",
-          state === "processing" && "bg-paper text-leaf-600 border-2 border-leaf-300",
+          "relative z-10 grid h-28 w-28 place-items-center rounded-full text-paper shadow-float outline-none transition-transform duration-200 focus-visible:ring-4 focus-visible:ring-leaf-300",
+          state === "error"
+            ? "bg-clay-500 hover:bg-clay-600"
+            : state === "processing"
+              ? "bg-sage-500"
+              : listening
+                ? "bg-clay-500 hover:bg-clay-600"
+                : "bg-leaf-600 hover:bg-leaf-700",
+          disabled ? "cursor-not-allowed opacity-60" : "active:scale-95",
         )}
       >
-        <IconMic className={cn("h-10 w-10", state === "processing" && "h-9 w-9")} />
-      </motion.button>
+        {state === "processing" ? (
+          <motion.span
+            aria-hidden="true"
+            className="pointer-events-none h-9 w-9 rounded-full border-[3px] border-paper/40 border-t-paper"
+            animate={{ rotate: 360 }}
+            transition={{ duration: 0.9, repeat: Infinity, ease: "linear" }}
+          />
+        ) : listening ? (
+          <span aria-hidden="true" className="pointer-events-none flex h-9 items-end gap-1">
+            {BARS.map((h, i) => (
+              <motion.span
+                key={i}
+                className="w-1 rounded-full bg-paper"
+                animate={{ height: [10, 10 + h * 22, 10] }}
+                transition={{ duration: 0.9, repeat: Infinity, ease: "easeInOut", delay: i * 0.08 }}
+              />
+            ))}
+          </span>
+        ) : (
+          <IconMic className="pointer-events-none h-11 w-11" />
+        )}
+      </button>
 
-      <p className="mt-4 text-sm font-medium text-pine-800">
-        {state === "listening" ? t("mic.listening") : label}
-      </p>
+      {/* Live level meter + max-time countdown, only while actually listening. */}
+      {listening && (
+        <div className="pointer-events-none absolute -bottom-5 flex flex-col items-center gap-1">
+          <div className="flex h-1 w-20 overflow-hidden rounded-full bg-mist">
+            <motion.div
+              className="h-full bg-leaf-500"
+              animate={{ width: `${Math.round((metrics?.level ?? 0) * 100)}%` }}
+              transition={{ duration: 0.12 }}
+            />
+          </div>
+          <span className="text-[11px] font-semibold text-sage">
+            {t("mic.secondsLeft", { seconds: secondsLeft })}
+            {metrics?.speechDetected ? ` · ${t("mic.speechHeard")}` : ""}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

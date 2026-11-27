@@ -12,9 +12,10 @@ import {
   VoiceResultCard,
 } from "../components/ResultViews";
 import { IconAlert, IconMapPin, IconSparkle, IconX } from "../components/Icons";
-import type { UnifiedVoiceResponse } from "../types";
+import type { UnifiedVoiceResponse, VoiceLang } from "../types";
 import { VoiceAPI } from "../lib/api";
 import { useVoiceRecorder } from "../lib/useVoiceRecorder";
+import type { RecordingResult } from "../lib/audio";
 import { getPosition, coordsInIndia } from "../lib/geo";
 import { useToast } from "../lib/toast";
 import { apiErrorMessage, fmtNumber } from "../lib/utils";
@@ -25,10 +26,6 @@ export function VoicePage() {
   const toast = useToast();
   const { t } = useTranslation();
   const lang = getAppLang();
-  const { recState, setRecState, micTap, resetRecorder } = useVoiceRecorder((blob) => {
-    setAudioBlob(blob);
-    return submit({ audio: blob });
-  });
 
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -39,6 +36,26 @@ export function VoicePage() {
   const [response, setResponse] = useState<UnifiedVoiceResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const tickerRef = useRef<number | null>(null);
+  const voiceAbortRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef(0);
+  const retryBlobRef = useRef<Blob | null>(null);
+  const voiceLangRef = useRef<VoiceLang>(lang);
+
+  const { recState, setRecState, micTap, cancelRecording, resetRecorder, metrics, reportDeliveryError } =
+    useVoiceRecorder({
+      onAudio: (result: RecordingResult) => {
+        setAudioBlob(result.blob);
+        retryBlobRef.current = result.blob;
+        return submit({ audio: result.blob, lang: voiceLangRef.current });
+      },
+      onPhaseChange: (micPhase) => {
+        if (micPhase === "listening") voiceLangRef.current = lang;
+      },
+      onError: (message, blob) => {
+        setError(message);
+        if (blob) retryBlobRef.current = blob;
+      },
+    });
 
   const PROGRESS: string[] = t("voice.progress", { returnObjects: true }) as unknown as string[];
 
@@ -46,14 +63,30 @@ export function VoicePage() {
 
   useEffect(() => {
     return () => {
+      voiceAbortRef.current?.abort();
       if (tickerRef.current !== null) window.clearInterval(tickerRef.current);
     };
   }, []);
 
-  const submit = async (overrides?: { audio?: Blob }) => {
+  const clearTicker = () => {
+    if (tickerRef.current !== null) window.clearInterval(tickerRef.current);
+    tickerRef.current = null;
+  };
+
+  const cancelVoiceRequest = () => {
+    voiceAbortRef.current?.abort();
+    voiceAbortRef.current = null;
+  };
+
+  const submit = async (overrides?: { audio?: Blob; lang?: VoiceLang }) => {
+    cancelVoiceRequest();
+    const requestId = ++requestIdRef.current;
+    const abort = new AbortController();
+    voiceAbortRef.current = abort;
+    clearTicker();
     const audio = overrides?.audio ?? audioBlob ?? undefined;
     const image = imageFile ?? undefined;
-    const inputs = { audio, image, latitude: coords?.latitude, longitude: coords?.longitude, lang };
+    const inputs = { audio, image, latitude: coords?.latitude, longitude: coords?.longitude, lang: overrides?.lang ?? lang };
 
     if (!audio && !imageFile && !coords) {
       toast.info(t("voice.toastNothingTitle"), t("voice.toastNothingMsg"));
@@ -70,14 +103,23 @@ export function VoicePage() {
     }, 950);
 
     try {
-      const data = await VoiceAPI.query(inputs);
-      if (tickerRef.current !== null) window.clearInterval(tickerRef.current);
+      const data = await VoiceAPI.query({ ...inputs, signal: abort.signal });
+      if (requestId !== requestIdRef.current) return; // stale response
+      clearTicker();
+      voiceAbortRef.current = null;
       setResponse(data);
       setRecState("idle");
     } catch (err) {
-      if (tickerRef.current !== null) window.clearInterval(tickerRef.current);
-      setError(apiErrorMessage(err));
+      if (requestId !== requestIdRef.current || abort.signal.aborted) return;
+      clearTicker();
+      voiceAbortRef.current = null;
+      const message = apiErrorMessage(err);
+      setError(message);
       setRecState("idle");
+      if (audio) {
+        retryBlobRef.current = audio;
+        reportDeliveryError(message, audio);
+      }
     }
   };
 
@@ -97,11 +139,13 @@ export function VoicePage() {
   };
 
   const reset = () => {
+    cancelVoiceRequest();
     setAudioBlob(null);
     setImageFile(null);
     setCoords(null);
     setResponse(null);
     setError(null);
+    retryBlobRef.current = null;
     resetRecorder();
   };
 
@@ -134,7 +178,7 @@ export function VoicePage() {
           animate="show"
           className="grid place-items-center"
         >
-          <MicButton state={recState} onPress={micTap} />
+          <MicButton state={recState} onPress={micTap} disabled={working} metrics={metrics} />
           {!audioBlob && recState === "idle" && (imageFile || coords) && (
             <motion.div
               initial={{ opacity: 0, y: 6 }}
@@ -154,7 +198,15 @@ export function VoicePage() {
             <p className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-sage">
               {t("voice.optPhotoTitle")}
             </p>
-            <UploadDropzone file={imageFile} onFile={setImageFile} compact analyzing={false} />
+            <UploadDropzone
+              file={imageFile}
+              onFile={(file) => {
+                if (recState === "listening" || recState === "starting") cancelRecording();
+                setImageFile(file);
+              }}
+              compact
+              analyzing={false}
+            />
             {imageFile && (
               <p className="mt-2 text-[12px] text-sage">
                 {t("voice.optPhotoTip")}
@@ -245,7 +297,14 @@ export function VoicePage() {
               </span>
               <p className="font-display text-lg font-semibold text-pine-900">{t("voice.errorTitle")}</p>
               <p className="max-w-sm text-[13.5px] text-sage">{error}</p>
-              <Button variant="secondary" onClick={() => void submit()}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  const blob = retryBlobRef.current;
+                  if (blob) void submit({ audio: blob });
+                  else void submit();
+                }}
+              >
                 {t("voice.tryAgain")}
               </Button>
             </motion.div>

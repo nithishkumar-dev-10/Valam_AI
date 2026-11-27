@@ -22,7 +22,8 @@ import {
   IconSparkle,
   IconSun,
 } from "../components/Icons";
-import type { DiseaseOutput, UnifiedVoiceResponse, WeedPestOutput } from "../types";
+import type { RecordingResult } from "../lib/audio";
+import type { DiseaseOutput, UnifiedVoiceResponse, VoiceLang, WeedPestOutput } from "../types";
 import { PredictAPI, VoiceAPI } from "../lib/api";
 import { useVoiceRecorder } from "../lib/useVoiceRecorder";
 import { useAuth } from "../lib/auth";
@@ -32,7 +33,9 @@ import { useToast } from "../lib/toast";
 import { apiErrorMessage, cn } from "../lib/utils";
 
 type ImageIntent = "disease" | "weed" | "pest" | "crop";
-type Phase = "input" | "working" | "done" | "error";
+/** Single UI state machine — voice and photo flows can never overlap. */
+type Phase = "idle" | "listening" | "processing" | "done" | "error";
+type WorkKind = "voice" | "image" | null;
 
 const INTENTS: ImageIntent[] = ["disease", "weed", "pest", "crop"];
 
@@ -43,22 +46,52 @@ export function HomePage() {
   const { status, farmer } = useAuth();
   const lang = getAppLang();
 
-  const { recState, setRecState, micTap, resetRecorder } = useVoiceRecorder((blob) => {
-    setAudioBlob(blob);
-    return submitVoice(blob, imageFile);
-  });
-
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [intent, setIntent] = useState<ImageIntent | null>(null);
 
-  const [phase, setPhase] = useState<Phase>("input");
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [workKind, setWorkKind] = useState<WorkKind>(null);
   const [progressIndex, setProgressIndex] = useState(0);
   const [response, setResponse] = useState<UnifiedVoiceResponse | null>(null);
   const [imageResult, setImageResult] = useState<DiseaseOutput | WeedPestOutput | null>(null);
   const [imageKind, setImageKind] = useState<"disease" | "weed" | "pest" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const tickerRef = useRef<number | null>(null);
+  const voiceAbortRef = useRef<AbortController | null>(null);
+  const voiceRequestIdRef = useRef(0);
+  const retryBlobRef = useRef<Blob | null>(null);
+  const voiceLangRef = useRef<VoiceLang>(lang);
+
+  const { recState, setRecState, micTap, cancelRecording, resetRecorder, metrics, reportDeliveryError } =
+    useVoiceRecorder({
+      onAudio: (result: RecordingResult) => {
+        setAudioBlob(result.blob);
+        retryBlobRef.current = result.blob;
+        return submitVoice(result.blob, imageFile);
+      },
+      onPhaseChange: (micPhase) => {
+        if (micPhase === "listening") {
+          // Language is snapshotted when the session starts; toggling mid-session
+          // applies from the next recording only.
+          voiceLangRef.current = lang;
+          // A fresh recording must not leave the previous result on screen.
+          clearTicker();
+          setResponse(null);
+          setImageResult(null);
+          setImageKind(null);
+          setAudioBlob(null);
+          setWorkKind(null);
+          setError(null);
+          setPhase("listening");
+        } else if (micPhase === "error") setPhase("error");
+        else setPhase((current) => (current === "listening" ? "idle" : current));
+      },
+      onError: (message, blob) => {
+        setError(message);
+        if (blob) retryBlobRef.current = blob;
+      },
+    });
 
   const PROGRESS: Record<Exclude<ImageIntent, "crop">, string[]> = {
     disease: t("scan.progressDisease", { returnObjects: true }) as unknown as string[],
@@ -119,10 +152,18 @@ export function HomePage() {
   };
 
   const submitVoice = async (audio: Blob, image: File | null) => {
-    setPhase("working");
+    cancelVoiceRequest();
+    const requestId = ++voiceRequestIdRef.current;
+    const abort = new AbortController();
+    voiceAbortRef.current = abort;
+
+    clearTicker();
+    setPhase("processing");
+    setWorkKind("voice");
     setError(null);
     setResponse(null);
     setImageResult(null);
+    setImageKind(null);
     setRecState("processing");
     setProgressIndex(0);
     tickerRef.current = window.setInterval(() => {
@@ -130,21 +171,36 @@ export function HomePage() {
     }, 950);
 
     try {
-      const data = await VoiceAPI.query({ audio, image: image ?? undefined, lang });
+      const data = await VoiceAPI.query({ audio, image: image ?? undefined, lang: voiceLangRef.current, signal: abort.signal });
+      if (requestId !== voiceRequestIdRef.current) return; // stale response
       clearTicker();
+      voiceAbortRef.current = null;
       setResponse(data);
       setPhase("done");
       setRecState("idle");
     } catch (err) {
+      if (requestId !== voiceRequestIdRef.current) return;
+      if (abort.signal.aborted) return;
       clearTicker();
-      setError(apiErrorMessage(err));
+      voiceAbortRef.current = null;
+      const message = apiErrorMessage(err);
+      setError(message);
       setPhase("error");
       setRecState("idle");
+      retryBlobRef.current = audio;
+      reportDeliveryError(message, audio);
     }
+  };
+
+  const cancelVoiceRequest = () => {
+    voiceAbortRef.current?.abort();
+    voiceAbortRef.current = null;
   };
 
   const submitImage = async () => {
     if (!imageFile) return;
+    // Starting a photo flow stops/releases the mic first.
+    cancelRecording();
     if (intent === "crop") {
       navigate("/crop");
       return;
@@ -153,7 +209,8 @@ export function HomePage() {
       toast.info(t("home.toastPick.title"), t("home.toastPick.msg"));
       return;
     }
-    setPhase("working");
+    setPhase("processing");
+    setWorkKind("image");
     setError(null);
     setResponse(null);
     setImageResult(null);
@@ -182,11 +239,15 @@ export function HomePage() {
   };
 
   const retry = () => {
-    if (audioBlob) void submitVoice(audioBlob, imageFile);
-    else if (imageFile) void submitImage();
+    cancelVoiceRequest();
+    const blob = retryBlobRef.current ?? audioBlob;
+    if ((workKind === "voice" || blob) && blob) void submitVoice(blob, imageFile);
+    else if (workKind === "image" && imageFile) void submitImage();
+    else reset();
   };
 
   const reset = () => {
+    cancelVoiceRequest();
     clearTicker();
     setAudioBlob(null);
     setImageFile(null);
@@ -195,11 +256,18 @@ export function HomePage() {
     setImageResult(null);
     setImageKind(null);
     setError(null);
+    setWorkKind(null);
+    retryBlobRef.current = null;
     resetRecorder();
-    setPhase("input");
+    setPhase("idle");
   };
 
-  const progressList = audioBlob ? VOICE_PROGRESS : intent ? PROGRESS[intent as Exclude<ImageIntent, "crop">] : VOICE_PROGRESS;
+  const progressList =
+    workKind === "voice"
+      ? VOICE_PROGRESS
+      : workKind === "image" && intent
+        ? PROGRESS[intent as Exclude<ImageIntent, "crop">]
+        : VOICE_PROGRESS;
 
   return (
     <>
@@ -272,25 +340,33 @@ export function HomePage() {
 
               <div className="mt-5 grid gap-5 sm:grid-cols-[auto_1fr] sm:items-center">
                 <div className="grid place-items-center">
-                  <MicButton state={recState} onPress={micTap} />
+                  <MicButton
+                    state={recState}
+                    onPress={micTap}
+                    disabled={phase === "processing"}
+                    metrics={metrics}
+                  />
                 </div>
                 <UploadDropzone
                   file={imageFile}
-                  analyzing={phase === "working" && !audioBlob}
-                  apiError={phase === "error" ? error : null}
-                  onFile={setImageFile}
+                  analyzing={phase === "processing" && workKind === "image"}
+                  apiError={phase === "error" && workKind === "image" ? error : null}
+                  onFile={(file) => {
+                    if (recState === "listening" || recState === "starting") cancelRecording();
+                    setImageFile(file);
+                  }}
                   compact
                 />
               </div>
 
-              {audioBlob && phase !== "working" && (
+              {audioBlob && phase !== "processing" && (
                 <p className="mt-3 flex items-center gap-1.5 text-[12.5px] text-sage">
                   <span className="h-1.5 w-1.5 rounded-full bg-leaf-500" />
                   {t("home.voiceWithPhoto")}
                 </p>
               )}
 
-              {phase === "input" && imageFile && !audioBlob && (
+              {phase === "idle" && imageFile && !audioBlob && (
                 <div className="mt-5 border-t border-mist pt-4">
                   <p className="text-[12px] font-semibold uppercase tracking-wide text-sage">
                     {t("home.pickIntent")}
@@ -334,7 +410,7 @@ export function HomePage() {
 
       <motion.div className="mx-auto mt-2 max-w-3xl">
         <AnimatePresence mode="wait">
-          {phase === "working" && (
+          {phase === "processing" && (
             <motion.div
               key="working"
               initial={{ opacity: 0, y: 10 }}
@@ -355,7 +431,7 @@ export function HomePage() {
               </div>
               <div className="min-w-0">
                 <p className="font-display animate-pulse text-[15px] font-semibold text-pine-900">
-                  {audioBlob ? t("voice.thinking") : t("scan.analyzing")}
+                  {workKind === "voice" ? t("voice.thinking") : t("scan.analyzing")}
                 </p>
                 <AnimatePresence mode="wait">
                   <motion.p

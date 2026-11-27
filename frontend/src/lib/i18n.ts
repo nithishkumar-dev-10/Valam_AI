@@ -35,6 +35,11 @@ export function getAppLang(): AppLang {
   return i18n.resolvedLanguage === "ta" ? "ta" : "en";
 }
 
+/** BCP-47 tag used by browser speech APIs for the active language toggle. */
+export function getSpeechLang(): string {
+  return getAppLang() === "ta" ? "ta-IN" : "en-IN";
+}
+
 /**
  * Translate a backend-enum value (crop name, disease/pest class, confidence
  * word, resolution, soil source…). Looks up the normalized token in the active

@@ -167,8 +167,8 @@ async def validate_audio_upload(file: UploadFile) -> bytes:
         )
 
     data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="Uploaded audio file is empty.")
+    if not data or len(data) < 32:
+        raise HTTPException(status_code=400, detail="Uploaded audio file is empty or too short.")
 
     magic = data[:12]
     is_audio = (

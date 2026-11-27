@@ -81,6 +81,10 @@ async def voice_query(
             detail="Provide at least one input: a voice note, a photo, or GPS location.",
         )
 
+    # Accept the BCP-47 hints the browser uses (ta-IN / en-IN) as well as the
+    # bare ISO codes, and always hand the pipeline a canonical "ta"/"en".
+    if lang is not None:
+        lang = lang.strip().lower().split("-")[0]
     if lang is not None and lang not in ("ta", "en"):
         raise HTTPException(status_code=400, detail="lang must be 'ta' or 'en' (or omitted for auto).")
 
