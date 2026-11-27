@@ -52,8 +52,10 @@ export function HomePage() {
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [workKind, setWorkKind] = useState<WorkKind>(null);
+  const [slowVoice, setSlowVoice] = useState(false);
   const [progressIndex, setProgressIndex] = useState(0);
   const [response, setResponse] = useState<UnifiedVoiceResponse | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [imageResult, setImageResult] = useState<DiseaseOutput | WeedPestOutput | null>(null);
   const [imageKind, setImageKind] = useState<"disease" | "weed" | "pest" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +64,7 @@ export function HomePage() {
   const voiceRequestIdRef = useRef(0);
   const retryBlobRef = useRef<Blob | null>(null);
   const voiceLangRef = useRef<VoiceLang>(lang);
+  const autoRetriedRef = useRef(false);
 
   const { recState, setRecState, micTap, cancelRecording, resetRecorder, metrics, reportDeliveryError } =
     useVoiceRecorder({
@@ -75,9 +78,12 @@ export function HomePage() {
           // Language is snapshotted when the session starts; toggling mid-session
           // applies from the next recording only.
           voiceLangRef.current = lang;
+          autoRetriedRef.current = false;
+          setSlowVoice(false);
           // A fresh recording must not leave the previous result on screen.
           clearTicker();
           setResponse(null);
+          setAudioUrl(null);
           setImageResult(null);
           setImageKind(null);
           setAudioBlob(null);
@@ -158,6 +164,8 @@ export function HomePage() {
     voiceAbortRef.current = abort;
 
     clearTicker();
+    const startedAt = Date.now();
+    setSlowVoice(false);
     setPhase("processing");
     setWorkKind("voice");
     setError(null);
@@ -168,6 +176,7 @@ export function HomePage() {
     setProgressIndex(0);
     tickerRef.current = window.setInterval(() => {
       setProgressIndex((i) => (i + 1) % VOICE_PROGRESS.length);
+      if (Date.now() - startedAt >= 8000) setSlowVoice(true);
     }, 950);
 
     try {
@@ -176,11 +185,31 @@ export function HomePage() {
       clearTicker();
       voiceAbortRef.current = null;
       setResponse(data);
+      setAudioUrl(null);
       setPhase("done");
       setRecState("idle");
+      autoRetriedRef.current = false;
+      // Text is already visible; fetch spoken audio separately and silently
+      // skip it if TTS fails or is slow.
+      void VoiceAPI.speech(
+        data.text_response || data.response_text || "",
+        voiceLangRef.current,
+        abort.signal,
+      ).then((url) => {
+        if (url && requestId === voiceRequestIdRef.current) setAudioUrl(url);
+      });
     } catch (err) {
       if (requestId !== voiceRequestIdRef.current) return;
       if (abort.signal.aborted) return;
+      // First failure (including a cold Render wake-up): retry once in place
+      // before showing an error to the farmer.
+      if (!autoRetriedRef.current) {
+        autoRetriedRef.current = true;
+        window.setTimeout(() => {
+          if (requestId === voiceRequestIdRef.current) void submitVoice(audio, image);
+        }, 1500);
+        return;
+      }
       clearTicker();
       voiceAbortRef.current = null;
       const message = apiErrorMessage(err);
@@ -240,6 +269,7 @@ export function HomePage() {
 
   const retry = () => {
     cancelVoiceRequest();
+    autoRetriedRef.current = false;
     const blob = retryBlobRef.current ?? audioBlob;
     if ((workKind === "voice" || blob) && blob) void submitVoice(blob, imageFile);
     else if (workKind === "image" && imageFile) void submitImage();
@@ -253,10 +283,12 @@ export function HomePage() {
     setImageFile(null);
     setIntent(null);
     setResponse(null);
+    setAudioUrl(null);
     setImageResult(null);
     setImageKind(null);
     setError(null);
     setWorkKind(null);
+    setSlowVoice(false);
     retryBlobRef.current = null;
     resetRecorder();
     setPhase("idle");
@@ -431,7 +463,11 @@ export function HomePage() {
               </div>
               <div className="min-w-0">
                 <p className="font-display animate-pulse text-[15px] font-semibold text-pine-900">
-                  {workKind === "voice" ? t("voice.thinking") : t("scan.analyzing")}
+                  {slowVoice
+                    ? t("voice.wakingServer")
+                    : workKind === "voice"
+                      ? t("voice.thinking")
+                      : t("scan.analyzing")}
                 </p>
                 <AnimatePresence mode="wait">
                   <motion.p
@@ -526,7 +562,7 @@ export function HomePage() {
               active
               delay={420}
             />
-            {response.audio_url && <AudioBar url={response.audio_url} />}
+            {audioUrl && <AudioBar url={audioUrl} />}
 
             {(response.crop_result ||
               response.disease_result ||

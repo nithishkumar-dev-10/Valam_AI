@@ -31,6 +31,12 @@ class DeepWeedService:
             import torch.nn as nn
             from torchvision import models, transforms
 
+            torch.set_num_threads(1)
+            try:
+                torch.set_num_interop_threads(1)
+            except RuntimeError:
+                pass
+
             try:
                 with open(DEEP_WEED_CLASSES_PATH) as f:
                     self.classes = json.load(f)
@@ -75,7 +81,7 @@ class DeepWeedService:
         import torch
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         tensor = self.transform(img).unsqueeze(0)
-        with torch.no_grad():
+        with torch.inference_mode():
             outputs = self.model(tensor)
             probs = torch.softmax(outputs, dim=1)[0]
             idx = int(torch.argmax(probs))

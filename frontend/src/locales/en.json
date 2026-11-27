@@ -239,6 +239,7 @@
     "toastMicDeniedMsg": "Allow microphone access, or use a photo / location instead.",
     "toastRecordErrTitle": "Couldn't record audio",
     "toastRecordErrMsg": "The microphone stopped unexpectedly. Tap the mic to try again.",
+    "wakingServer": "Waking up the server — this can take a moment on first use",
     "noSpeechTitle": "I didn't hear anything",
     "noSpeechBody": "I didn't hear anything, tap the mic and try again.",
     "toastPermTitle": "Microphone blocked",

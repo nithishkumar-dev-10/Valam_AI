@@ -182,13 +182,44 @@ export const PredictAPI = {
       .then((r) => r.data),
 };
 
-/** Voice uploads are large; cap them so a stalled request cannot hang the UI. */
-const VOICE_TIMEOUT_MS = 20000;
+/** Voice uploads are large and Render cold starts are slow: allow 60s. */
+const VOICE_TIMEOUT_MS = 60000;
+const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
+
+/** Canvas-resize a photo so a 12 MP phone image never dominates the upload. */
+async function compressPhoto(file: File): Promise<Blob> {
+  if (typeof document === "undefined" || typeof createImageBitmap === "undefined") return file;
+  const bitmap = await createImageBitmap(file);
+  try {
+    const maxEdge = 1280;
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return file;
+    context.drawImage(bitmap, 0, 0, width, height);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error("Could not compress the photo"))),
+        "image/jpeg",
+        0.8,
+      );
+    });
+  } finally {
+    bitmap.close();
+  }
+}
 
 export const VoiceAPI = {
   query: async (input: VoiceInput & { signal?: AbortSignal }): Promise<UnifiedVoiceResponse> => {
     const form = new FormData();
     if (input.audio) {
+      if (input.audio.size > MAX_AUDIO_BYTES) {
+        throw new Error("The recording is too large. Please try a shorter answer.");
+      }
       // Preserve the recorder's real container/codec: Safari records MP4/AAC,
       // Chrome/Firefox record WebM/Opus, Firefox may use Ogg. The backend also
       // sniffs the magic bytes, but a correct filename/content-type helps.
@@ -196,7 +227,14 @@ export const VoiceAPI = {
       const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
       form.append("audio", input.audio, `recording.${ext}`);
     }
-    if (input.image) form.append("image", input.image, input.image.name);
+    if (input.image) {
+      try {
+        form.append("image", await compressPhoto(input.image), "photo.jpg");
+      } catch {
+        // Compression is best-effort; fall back to the original file.
+        form.append("image", input.image, input.image.name);
+      }
+    }
     if (input.latitude !== undefined) form.append("latitude", String(input.latitude));
     if (input.longitude !== undefined) form.append("longitude", String(input.longitude));
     form.append("lang", input.lang);
@@ -207,6 +245,16 @@ export const VoiceAPI = {
       })
       .then((r) => r.data);
   },
+  /** Best-effort speech, called only after the diagnosis text is on screen. */
+  speech: (text: string, lang: string, signal?: AbortSignal) =>
+    api
+      .post<{ audio_url: string | null }>(
+        "/voice/tts",
+        { text, lang },
+        { signal, timeout: 12000 },
+      )
+      .then((r) => r.data.audio_url)
+      .catch(() => null),
 };
 
 export const HealthAPI = {

@@ -19,10 +19,13 @@ No auth is required — the frontend calls it with an optional bearer token in
 the future, but a listener without an account must still work.
 """
 
+import asyncio
+import time
 import uuid
 from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from app.utils.logger import logger
@@ -34,9 +37,24 @@ from app.schemas.voice import UnifiedVoiceResponse, ModelResult
 from app.schemas.prediction import CropOutput, DiseaseOutput, WeedPestOutput
 from app.validation import validate_image_upload, validate_audio_upload
 from app.rate_limiter import limiter
-from app.config import VOICE_RATE_PER_MINUTE, TEMP_UPLOAD_DIR
+from app.config import (
+    GROQ_API_KEY,
+    TEMP_UPLOAD_DIR,
+    TTS_TIMEOUT_SECONDS,
+    VOICE_PIPELINE_TIMEOUT_SECONDS,
+    VOICE_RATE_PER_MINUTE,
+)
 
 router = APIRouter(prefix="/voice", tags=["Voice Assistant"])
+
+
+def _timing(stage: str, started: float) -> None:
+    logger.info("[voice-timing] stage=%s ms=%d", stage, int((time.perf_counter() - started) * 1000))
+
+
+class TTSRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+    lang: str = Field(default="en", pattern="^(ta|en)$")
 
 
 @router.post(
@@ -81,6 +99,26 @@ async def voice_query(
             detail="Provide at least one input: a voice note, a photo, or GPS location.",
         )
 
+    # Early rejection before multipart parsing / disk writes. Individual file
+    # limits are enforced in validation.py (15 MB each); this caps the whole
+    # body so a single oversized request can't eat the instance's memory.
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > 32 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Upload is too large (32 MB total limit).")
+
+    started_total = time.perf_counter()
+    logger.info(
+        "[voice-timing] request start audio=%s image=%s lang=%s",
+        bool(audio), bool(image), lang,
+    )
+
+    # Fail fast instead of waiting for an STT call that can never authenticate.
+    if audio is not None and not GROQ_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Voice transcription is not configured on the server (GROQ_API_KEY missing).",
+        )
+
     # Accept the BCP-47 hints the browser uses (ta-IN / en-IN) as well as the
     # bare ISO codes, and always hand the pipeline a canonical "ta"/"en".
     if lang is not None:
@@ -106,6 +144,7 @@ async def voice_query(
     image_bytes = None
 
     try:
+        stage = time.perf_counter()
         if audio is not None:
             audio_bytes = await validate_audio_upload(audio)
             temp_audio_path = TEMP_UPLOAD_DIR / f"{uuid.uuid4().hex}.audio"
@@ -114,43 +153,58 @@ async def voice_query(
 
         if image is not None:
             image_bytes = await validate_image_upload(image)
+        _timing("receive", stage)
 
-        out = await run_pipeline(
-            audio_path=temp_audio_path,
-            image_bytes=image_bytes,
-            latitude=latitude,
-            longitude=longitude,
-            lang_override=lang,
-            transcribe_fn=voice_service.transcribe,
-        )
+        stage = time.perf_counter()
+        try:
+            out = await asyncio.wait_for(
+                run_pipeline(
+                    audio_path=temp_audio_path,
+                    image_bytes=image_bytes,
+                    latitude=latitude,
+                    longitude=longitude,
+                    lang_override=lang,
+                    transcribe_fn=voice_service.transcribe,
+                ),
+                timeout=VOICE_PIPELINE_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            logger.exception("[voice-timing] pipeline exceeded %ss", VOICE_PIPELINE_TIMEOUT_SECONDS)
+            raise HTTPException(
+                status_code=504,
+                detail="The server took too long to analyze this request. Please try again.",
+            ) from exc
+        _timing("pipeline-total", stage)
 
     except PipelineInputError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        # STT/model failures get a clean JSON error with a logged cause.
+        logger.error("Voice runtime failure: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Voice transcription or analysis is unavailable right now. Please try again.",
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception:
+        # Full traceback in Render logs so a hung/failed stage is diagnosable.
+        logger.exception("Voice pipeline failed unexpectedly")
+        raise HTTPException(
+            status_code=500,
+            detail="The server could not complete the request. Please try again.",
+        )
 
     finally:
         if temp_audio_path is not None:
             temp_audio_path.unlink(missing_ok=True)
 
-    # ---- Step 6: speak the summary (gTTS in the response language) ----
+    # TTS intentionally NOT done here: gTTS has no internal timeout and must
+    # never hold the diagnosis response. The frontend calls /voice/tts after
+    # rendering the text.
     audio_url = None
     audio_relative = None
-    try:
-        # gTTS does blocking socket I/O; run it off the event loop so one slow
-        # synthesis can't stall every other request on the single worker.
-        audio_reference = await run_in_threadpool(
-            voice_service.synthesize, out["summary"], language=out["summary_language"]
-        )
-        if audio_reference.startswith(("http://", "https://")):
-            # Object-storage mode (AUDIO_STORAGE_BUCKET set): synthesize
-            # already returned an absolute signed URL — use it directly. The
-            # legacy audio_response_path (relative /static path) has no meaning
-            # here and stays None; the frontend plays audio_url.
-            audio_url = audio_reference
-        else:
-            audio_relative = audio_reference
-            audio_url = str(request.base_url).rstrip("/") + audio_relative
-    except Exception as exc:  # response is still fully usable without audio
-        logger.error(f"gTTS synthesis failed: {exc}")
+    _timing("total", started_total)
 
     crop = out["crop_result"]
     disease = out["disease_result"]
@@ -199,3 +253,31 @@ async def voice_query(
             else None
         ),
     )
+
+
+@router.post("/tts", summary="Optional speech for a diagnosis")
+async def synthesize_tts(payload: TTSRequest, request: Request):
+    """Best-effort TTS. Called by the frontend AFTER the text is rendered.
+
+    gTTS uses requests with no internal timeout, so it runs in a worker thread
+    under a hard timeout. Failure/timeout simply returns no audio (200), never
+    an error and never a held-open request.
+    """
+    started = time.perf_counter()
+    try:
+        reference = await asyncio.wait_for(
+            run_in_threadpool(
+                voice_service.synthesize, payload.text, language=payload.lang
+            ),
+            timeout=TTS_TIMEOUT_SECONDS,
+        )
+        _timing("tts", started)
+    except Exception as exc:
+        logger.warning("TTS skipped (failed or >%ss): %s", TTS_TIMEOUT_SECONDS, exc)
+        return {"audio_url": None}
+
+    if reference.startswith(("http://", "https://")):
+        return {"audio_url": reference}
+    if reference:
+        return {"audio_url": str(request.base_url).rstrip("/") + reference}
+    return {"audio_url": None}

@@ -33,13 +33,16 @@ export function VoicePage() {
   const [locating, setLocating] = useState(false);
 
   const [progressIndex, setProgressIndex] = useState(0);
+  const [slow, setSlow] = useState(false);
   const [response, setResponse] = useState<UnifiedVoiceResponse | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const tickerRef = useRef<number | null>(null);
   const voiceAbortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
   const retryBlobRef = useRef<Blob | null>(null);
   const voiceLangRef = useRef<VoiceLang>(lang);
+  const autoRetriedRef = useRef(false);
 
   const { recState, setRecState, micTap, cancelRecording, resetRecorder, metrics, reportDeliveryError } =
     useVoiceRecorder({
@@ -49,7 +52,11 @@ export function VoicePage() {
         return submit({ audio: result.blob, lang: voiceLangRef.current });
       },
       onPhaseChange: (micPhase) => {
-        if (micPhase === "listening") voiceLangRef.current = lang;
+        if (micPhase === "listening") {
+          voiceLangRef.current = lang;
+          autoRetriedRef.current = false;
+          setSlow(false);
+        }
       },
       onError: (message, blob) => {
         setError(message);
@@ -97,9 +104,12 @@ export function VoicePage() {
     setRecState("processing");
     setError(null);
     setResponse(null);
+    setSlow(false);
     setProgressIndex(0);
+    const startedAt = Date.now();
     tickerRef.current = window.setInterval(() => {
       setProgressIndex((i) => (i + 1) % PROGRESS.length);
+      if (Date.now() - startedAt >= 8000) setSlow(true);
     }, 950);
 
     try {
@@ -108,9 +118,26 @@ export function VoicePage() {
       clearTicker();
       voiceAbortRef.current = null;
       setResponse(data);
+      setAudioUrl(null);
       setRecState("idle");
+      autoRetriedRef.current = false;
+      void VoiceAPI.speech(
+        data.text_response || data.response_text || "",
+        inputs.lang,
+        abort.signal,
+      ).then((url) => {
+        if (url && requestId === requestIdRef.current) setAudioUrl(url);
+      });
     } catch (err) {
       if (requestId !== requestIdRef.current || abort.signal.aborted) return;
+      // One automatic retry before surfacing the error (Render cold starts).
+      if (!autoRetriedRef.current) {
+        autoRetriedRef.current = true;
+        window.setTimeout(() => {
+          if (requestId === requestIdRef.current) void submit(overrides);
+        }, 1500);
+        return;
+      }
       clearTicker();
       voiceAbortRef.current = null;
       const message = apiErrorMessage(err);
@@ -140,10 +167,13 @@ export function VoicePage() {
 
   const reset = () => {
     cancelVoiceRequest();
+    autoRetriedRef.current = false;
+    setSlow(false);
     setAudioBlob(null);
     setImageFile(null);
     setCoords(null);
     setResponse(null);
+    setAudioUrl(null);
     setError(null);
     retryBlobRef.current = null;
     resetRecorder();
@@ -266,7 +296,7 @@ export function VoicePage() {
               </div>
               <div className="min-w-0">
                 <p className="font-display text-[15px] font-semibold text-pine-900">
-                  {t("voice.thinking")}
+                  {slow ? t("voice.wakingServer") : t("voice.thinking")}
                 </p>
                 <AnimatePresence mode="wait">
                   <motion.p
@@ -300,6 +330,7 @@ export function VoicePage() {
               <Button
                 variant="secondary"
                 onClick={() => {
+                  autoRetriedRef.current = false;
                   const blob = retryBlobRef.current;
                   if (blob) void submit({ audio: blob });
                   else void submit();
@@ -342,7 +373,7 @@ export function VoicePage() {
               active
               delay={420}
             />
-            {response.audio_url && <AudioBar url={response.audio_url} />}
+            {audioUrl && <AudioBar url={audioUrl} />}
 
             {(response.crop_result ||
               response.disease_result ||

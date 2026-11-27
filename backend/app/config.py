@@ -55,6 +55,21 @@ DEFAULT_VOICE_LANGUAGE = os.getenv("DEFAULT_VOICE_LANGUAGE", "ta")
 # baked into the image and no WHISPER_MODEL_SIZE knob exists anymore.
 # Transcription fails loudly at call time (not boot) if this is unset.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# Turbo is materially faster than the full model on the same hardware and is
+# the right default for a 10s voice note; override if you need max accuracy.
+GROQ_STT_MODEL = os.getenv("GROQ_STT_MODEL", "whisper-large-v3-turbo")
+GROQ_STT_FALLBACK_MODELS = [
+    m.strip()
+    for m in os.getenv(
+        "GROQ_STT_FALLBACK_MODELS",
+        "whisper-large-v3,distil-whisper-large-v3-english",
+    ).split(",")
+    if m.strip()
+]
+# Hard ceiling for the whole voice request, and for the outbound STT call.
+VOICE_PIPELINE_TIMEOUT_SECONDS = float(os.getenv("VOICE_PIPELINE_TIMEOUT_SECONDS", "45"))
+STT_TIMEOUT_SECONDS = float(os.getenv("STT_TIMEOUT_SECONDS", "25"))
+TTS_TIMEOUT_SECONDS = float(os.getenv("TTS_TIMEOUT_SECONDS", "8"))
 
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 NOMINATIM_USER_AGENT = os.getenv(

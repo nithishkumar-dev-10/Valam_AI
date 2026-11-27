@@ -13,7 +13,9 @@ Returns a plain dict that app/routers/voice.py wraps in the UnifiedVoiceResponse
 schema (and turns into spoken audio). No TTS here — the router owns audio URLs.
 """
 
+import asyncio
 import re
+import time
 from typing import Optional
 
 from starlette.concurrency import run_in_threadpool
@@ -44,6 +46,11 @@ class PipelineInputError(Exception):
     with a clear, non-crashing message."""
 
 
+def _timing(stage: str, started: float) -> None:
+    """Structured stage timing so Render logs show exactly where time went."""
+    logger.info("[voice-timing] stage=%s ms=%d", stage, int((time.perf_counter() - started) * 1000))
+
+
 def _confidence_label(confidence: float) -> str:
     if confidence >= 0.80:
         return "high"
@@ -63,7 +70,12 @@ async def _run_crop(latitude: float, longitude: float) -> dict:
     part 1's data_resolution / input_confidence / data_quality_note fields are
     guaranteed identical and the frontend badge renders unchanged.
     """
-    location = await reverse_geocode(latitude, longitude, NOMINATIM_USER_AGENT)
+    # These three lookups are independent. Running them together cuts the crop
+    # branch from ~3 sequential network/disk calls to one round trip.
+    location, weather = await asyncio.gather(
+        reverse_geocode(latitude, longitude, NOMINATIM_USER_AGENT),
+        fetch_weather_features(latitude, longitude),
+    )
     state = location.get("state")
     district = location.get("district")
 
@@ -72,8 +84,7 @@ async def _run_crop(latitude: float, longitude: float) -> dict:
             "Could not determine the state from the provided GPS coordinates."
         )
 
-    soil = get_regional_soil_values(state, district)
-    weather = await fetch_weather_features(latitude, longitude)
+    soil = await run_in_threadpool(get_regional_soil_values, state, district)
 
     N, P, K, ph = soil["N"], soil["P"], soil["K"], soil["ph"]
     temperature = weather["temperature"]
@@ -338,10 +349,10 @@ async def run_pipeline(
     detected_language = lang_override or "en"
     language_probability = None
     if audio_path and transcribe_fn is not None:
-        # Whisper transcription is a long, CPU-bound torch call that releases
-        # the GIL; run it on a worker thread so the single event loop keeps
-        # serving health checks and other requests meanwhile.
+        # Groq STT is blocking HTTP; keep it off the event loop and time it.
+        stage = time.perf_counter()
         stt = await run_in_threadpool(transcribe_fn, audio_path, language=lang_override)
+        _timing("transcribe", stage)
         transcribed_text = (stt.get("text") or "").strip()
         detected_language = stt.get("language") or detected_language
         language_probability = stt.get("language_probability")
@@ -349,30 +360,37 @@ async def run_pipeline(
     # 2. intent (only from real speech)
     intent = "unclear"
     if transcribed_text:
+        stage = time.perf_counter()
         intent = parse_intent(transcribed_text, language=detected_language)["intent"]
+        _timing("intent", stage)
 
     # 3. branch -> which models run (raises clear errors for missing inputs)
     plan = _plan_models(intent, has_image, has_location)
 
-    # 4. run each model in plan order (crop/disease/pest/weed)
-    results = []
-    for key in plan:
+    # 4. run independent models concurrently (crop/disease/pest/weed). With a
+    #    photo + unclear intent this used to run disease then pest serially.
+    async def run_model(key: str) -> dict:
         if key == "crop":
-            results.append(await _run_crop(latitude, longitude))
-        elif key == "disease":
-            results.append(await run_in_threadpool(_run_disease, image_bytes))
-        elif key == "pest":
-            results.append(await run_in_threadpool(_run_pest, image_bytes))
-        elif key == "weed":
-            results.append(await run_in_threadpool(_run_weed, image_bytes))
+            return await _run_crop(latitude, longitude)
+        if key == "disease":
+            return await run_in_threadpool(_run_disease, image_bytes)
+        if key == "pest":
+            return await run_in_threadpool(_run_pest, image_bytes)
+        return await run_in_threadpool(_run_weed, image_bytes)
+
+    stage = time.perf_counter()
+    results = list(await asyncio.gather(*(run_model(key) for key in plan))) if plan else []
+    _timing(f"models:{','.join(plan) or 'none'}", stage)
 
     # 5. response language: override > detected > English
     out_lang = lang_override if lang_override in VALID_LANGS else (
         detected_language if detected_language in VALID_LANGS else "en"
     )
 
-    # 6. summary
+    # 6. summary (offline, no LLM call — kept deterministic and fast)
+    stage = time.perf_counter()
     summary = _summarize(results, out_lang)
+    _timing("summary", stage)
 
     return {
         "intent": intent,

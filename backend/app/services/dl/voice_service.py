@@ -22,13 +22,16 @@ from app.config import (
     R2_ACCESS_KEY_ID,
     R2_SECRET_ACCESS_KEY,
     GROQ_API_KEY,
+    GROQ_STT_FALLBACK_MODELS,
+    GROQ_STT_MODEL,
+    STT_TIMEOUT_SECONDS,
     VOICE_AUDIO_OUTPUT_DIR,
     DEFAULT_VOICE_LANGUAGE,
 )
 from app.utils.logger import logger
 
 GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
-GROQ_MODEL = "whisper-large-v3"
+GROQ_MODEL = GROQ_STT_MODEL
 
 # Groq accepts these media extensions only; the uploaded temp file has NO
 # extension (voice.py writes {uuid}.audio), so the format is re-derived from
@@ -141,29 +144,65 @@ class VoiceService:
         ext, mime = _sniff_audio_extension(audio_file_path)
         filename = f"recording{ext}"
 
-        multipart = {
-            "file": (filename, open(audio_file_path, "rb"), mime),
-            "model": GROQ_MODEL,
-            "response_format": "verbose_json",
-        }
-        if language is not None:
-            multipart["language"] = language
+        # Try the fast model first, then fall back on model-access errors only.
+        # Auth/network failures are surfaced immediately (no blind retries).
+        models = [GROQ_MODEL, *GROQ_STT_FALLBACK_MODELS]
+        payload = None
+        used_model = None
+        last_error = None
 
-        try:
-            with httpx.Client(
-                timeout=120.0,
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-            ) as client:
-                response = client.post(GROQ_TRANSCRIBE_URL, data={}, files=multipart)
-                response.raise_for_status()
-                payload = response.json()
-        except httpx.HTTPStatusError as exc:
+        for model in dict.fromkeys(models):  # de-duplicate while preserving order
+            try:
+                # `with open(...)` keeps the handle closed even if Groq fails;
+                # the old code leaked one fd per request until GC.
+                with open(audio_file_path, "rb") as audio_handle:
+                    multipart = {
+                        "file": (filename, audio_handle, mime),
+                        "model": model,
+                        "response_format": "verbose_json",
+                    }
+                    if language is not None:
+                        multipart["language"] = language
+
+                    with httpx.Client(
+                        timeout=httpx.Timeout(STT_TIMEOUT_SECONDS),
+                        headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                    ) as client:
+                        response = client.post(GROQ_TRANSCRIBE_URL, data={}, files=multipart)
+                        response.raise_for_status()
+                        payload = response.json()
+                used_model = model
+                break
+            except httpx.HTTPStatusError as exc:
+                body = exc.response.text[:300].lower()
+                is_model_error = (
+                    exc.response.status_code in (400, 403, 404)
+                    and any(
+                        token in body
+                        for token in ("model", "permission", "access", "not found", "does not exist")
+                    )
+                )
+                if is_model_error:
+                    logger.warning(
+                        "Groq STT model %s unavailable (%s); trying fallback",
+                        model, exc.response.status_code,
+                    )
+                    last_error = exc
+                    continue
+                raise RuntimeError(
+                    f"Groq transcription failed with HTTP {exc.response.status_code}: "
+                    f"{exc.response.text[:200]}"
+                ) from exc
+            except httpx.RequestError as exc:
+                raise RuntimeError(f"Unable to reach Groq transcription API: {exc}") from exc
+
+        if payload is None:
             raise RuntimeError(
-                f"Groq transcription failed with HTTP {exc.response.status_code}: "
-                f"{exc.response.text[:200]}"
-            ) from exc
-        except httpx.RequestError as exc:
-            raise RuntimeError(f"Unable to reach Groq transcription API: {exc}") from exc
+                "No Groq speech-to-text model was accessible on this API key. "
+                f"Tried: {', '.join(dict.fromkeys(models))}."
+            ) from last_error
+
+        logger.info("Groq STT used model=%s", used_model)
 
         text = (payload.get("text") or "").strip()
         detected = _normalize_language(payload.get("language"), language)

@@ -163,6 +163,19 @@ async def lifespan(app: FastAPI):
     data that must never linger), then run a background retention sweep every 6h
     so cleanup happens continuously, not only on restart."""
     logger.info("CORS_ORIGINS=%s", ",".join(CORS_ORIGINS) or "(none)")
+
+    from app.config import GROQ_API_KEY
+    if not GROQ_API_KEY:
+        logger.warning(
+            "GROQ_API_KEY is not set — voice transcription will return a clean "
+            "error until it is configured."
+        )
+
+    # Load inference models now, not on the farmer's first request.
+    from app.services.ml.model_warmup import models_ready, prewarm_models
+    await prewarm_models()
+    app.state.models_ready = models_ready()
+
     _create_tables_with_retry()
     _purge_temp_uploads()
     _purge_voice_audio()
@@ -385,6 +398,22 @@ app.include_router(voice.router, prefix=API_V1)
 app.include_router(pest.router, prefix=API_V1)
 if ADMIN_ACCESS_KEY:
     app.include_router(admin.router, prefix=API_V1)
+
+
+# Lightweight cold-start ping. No DB, no ML, no outbound calls — the frontend
+# calls this on page load to wake a sleeping Render instance early.
+@app.get("/health", include_in_schema=False)
+def warmup_health():
+    return {"status": "ok", "service": "valam-ai-backend"}
+
+
+# Readiness: 200 only once the inference models are in the module-level cache.
+# No DB and no model calls — just the flag set by lifespan.
+@app.get("/ready", include_in_schema=False)
+def ready():
+    if getattr(app.state, "models_ready", False):
+        return {"status": "ready", "service": "valam-ai-backend"}
+    return JSONResponse(status_code=503, content={"status": "warming", "service": "valam-ai-backend"})
 
 
 @app.get(f"{API_V1}/health", tags=["Health"], summary="Liveness + DB probe",

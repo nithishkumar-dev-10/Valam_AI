@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -10,8 +11,15 @@ import { CropPage } from "./pages/CropPage";
 import { ScanPage } from "./pages/ScanPage";
 import { VoicePage } from "./pages/VoicePage";
 import { ProfilePage } from "./pages/ProfilePage";
+import { BASE_URL } from "./lib/api";
 
 export default function App() {
+  // Wake a sleeping Render instance on page load. Fire-and-forget: a failure
+  // here is harmless and must never block rendering the UI.
+  useEffect(() => {
+    void fetch(`${BASE_URL}/health`).catch(() => undefined);
+  }, []);
+
   return (
     <ErrorBoundary>
       <AuthProvider>

@@ -45,8 +45,12 @@ class PestService:
                 return
 
             try:
+                options = ort.SessionOptions()
+                options.intra_op_num_threads = 1
+                options.inter_op_num_threads = 1
                 self._session = ort.InferenceSession(
-                    str(PEST_MODEL_PATH), providers=["CPUExecutionProvider"]
+                    str(PEST_MODEL_PATH), sess_options=options,
+                    providers=["CPUExecutionProvider"],
                 )
                 with open(PEST_CLASSES_PATH) as f:
                     self._classes = json.load(f)
